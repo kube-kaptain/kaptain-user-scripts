@@ -1,0 +1,17 @@
+name: Basic Quality and Versioning
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    uses: kube-kaptain/buildon-github-actions/.github/workflows/basic-quality-and-versioning.yaml@1.0.60
+    permissions:
+      contents: write
+      checks: write
+    with:
+      qc-block-slash-containing-branches: true
+      qc-block-conventional-commits: true
