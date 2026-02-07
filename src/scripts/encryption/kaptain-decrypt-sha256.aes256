@@ -62,11 +62,32 @@ read -r -s -p "Enter passphrase: " passphrase
 echo
 
 # Decrypt each file
+success_count=0
+fail_count=0
+failed_files=()
+
+echo "Decrypting ${#enc_files[@]} .${SUFFIX} file(s)..."
 for enc_file in "${enc_files[@]}"; do
   txt_file="${enc_file%.${SUFFIX}}.txt"
-  echo "Decrypting ${enc_file} -> ${txt_file}"
-  openssl enc -md sha256 -pbkdf2 -iter "${ITERATIONS}" -aes-256-cbc -d -base64 \
-    -in "${enc_file}" -out "${txt_file}" -k "${passphrase}"
+  if openssl enc -md sha256 -pbkdf2 -iter "${ITERATIONS}" -aes-256-cbc -d -base64 \
+    -in "${enc_file}" -out "${txt_file}" -k "${passphrase}" 2>/dev/null; then
+    echo "OK: ${enc_file}"
+    success_count=$((success_count + 1))
+  else
+    echo "FAILED: ${enc_file}"
+    fail_count=$((fail_count + 1))
+    failed_files+=("${enc_file}")
+  fi
 done
 
-echo "Done. Decrypted ${#enc_files[@]} file(s)"
+echo ""
+echo "Done. ${success_count} succeeded, ${fail_count} failed."
+
+if [[ ${fail_count} -gt 0 ]]; then
+  echo ""
+  echo "Failed files:"
+  for f in "${failed_files[@]}"; do
+    echo "  ${f}"
+  done
+  exit 1
+fi
