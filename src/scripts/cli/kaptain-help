@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Kaptain CLI help
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+cat <<'EOF'
+Kaptain CLI - User scripts for Kaptain Kubernetes build and deployment system.
+
+Usage: kaptain <command> [options]
+
+Commands:
+  encrypt    Encrypt secrets in a directory
+  decrypt    Decrypt secrets in a directory
+  help       Show this help message
+
+Encryption Commands:
+  kaptain encrypt [--type TYPE] [--dir DIR]
+    Encrypt .raw files to encrypted format.
+    --type    Encryption type (age, sha256.aes256, sha256.aes256.10k, etc.)
+              Default: age for new dirs, or matches existing encrypted files
+    --dir     Target directory (default: src/secrets)
+
+  kaptain decrypt [--type TYPE] [--dir DIR]
+    Decrypt encrypted files to .txt files.
+    --type    Encryption type (auto-detected from file extensions if omitted)
+    --dir     Target directory (default: src/secrets)
+
+Direct script access: kaptain-<command>[-<encryptionType>]
+
+Use tab completion from `kaptain-` to see what's installed.
+
+EOF
+
+# List available subcommands dynamically
+echo "Available subcommands:"
+for cmd in "${SCRIPT_DIR}"/kaptain-*; do
+  if [[ -x "${cmd}" ]]; then
+    name=$(basename "${cmd}")
+    # Skip encryption scripts in subdirectory listing
+    if [[ "${name}" != kaptain-encrypt-* && "${name}" != kaptain-decrypt-* ]] || \
+       [[ "${name}" == "kaptain-encrypt" || "${name}" == "kaptain-decrypt" ]]; then
+      echo "  ${name#kaptain-}"
+    fi
+  fi
+done
+echo
+
+# List available scriptss dynamically
+echo "Available kaptain scripts:"
+for cmd in "${SCRIPT_DIR}"/kaptain-*; do
+  if [[ -x "${cmd}" ]]; then
+    echo"$(basename "${cmd}")"
+  fi
+done
+echo
+

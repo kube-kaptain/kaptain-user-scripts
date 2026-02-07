@@ -1,4 +1,4 @@
-name: Basic Quality and Versioning
+name: Docker Build Dockerfile
 
 on:
   push:
@@ -8,10 +8,13 @@ on:
 
 jobs:
   build:
-    uses: kube-kaptain/buildon-github-actions/.github/workflows/basic-quality-and-versioning.yaml@1.0.60
+    uses: kube-kaptain/buildon-github-actions/.github/workflows/docker-build-dockerfile.yaml@1.0.60
     permissions:
       contents: write
+      packages: write
       checks: write
     with:
       qc-block-slash-containing-branches: true
       qc-block-conventional-commits: true
+      hook-pre-docker-prepare-script-sub-path: bin/package-for-release.bash
+      github-release-verbatim-files: target/user-scripts/all/kaptain-user-scripts.zip target/user-scripts/cli/kaptain-user-scripts-cli.zip target/user-scripts/encryption/kaptain-user-scripts-encryption.zip

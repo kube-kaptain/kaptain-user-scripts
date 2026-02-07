@@ -10,9 +10,29 @@
 # Usage: decrypt-secrets-sha256.aes256
 set -euo pipefail
 
-SECRETS_DIR="src/secrets"
 ITERATIONS=10000
 SUFFIX="sha256.aes256"
+
+# Handle --dir argument
+if [[ $# -eq 0 ]]; then
+  # No args - use env var or default
+  SECRETS_DIR="${SECRETS_DIR:-src/secrets}"
+elif [[ $# -eq 2 ]]; then
+  if [[ "$1" != "--dir" ]]; then
+    echo "ERROR: Unknown option: $1" >&2
+    echo "Usage: $(basename "$0") [--dir DIR]" >&2
+    exit 1
+  fi
+  if [[ ! -d "$2" ]]; then
+    echo "ERROR: Directory not found: $2" >&2
+    exit 1
+  fi
+  SECRETS_DIR="$2"
+else
+  echo "ERROR: Wrong argument count, must be 0 or 2." >&2
+  echo "Usage: $(basename "$0") [--dir DIR]" >&2
+  exit 1
+fi
 
 if [[ ! -d "${SECRETS_DIR}" ]]; then
   echo "ERROR: ${SECRETS_DIR} directory not found - run from repo root" >&2
