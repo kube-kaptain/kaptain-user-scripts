@@ -6,17 +6,20 @@
 
 SCRIPTS_DIR="src/scripts/encryption"
 FIXTURES_DIR="src/test/fixtures"
+OUTPUT_SUB_PATH="${OUTPUT_SUB_PATH:-target}"
 TEST_PASSPHRASE="test-passphrase-for-ci-only"
 
 # Setup: create a clean test directory for each test
 setup() {
-  TEST_DIR=$(mktemp -d)
+  TEST_DIR="${OUTPUT_SUB_PATH}/test/encryption/secrets"
+  rm -rf "${OUTPUT_SUB_PATH}/test/encryption"
+  mkdir -p "${TEST_DIR}"
   cp -r "${FIXTURES_DIR}"/* "${TEST_DIR}"/
 }
 
 # Teardown: clean up test directory
 teardown() {
-  rm -rf "${TEST_DIR}"
+  rm -rf "${OUTPUT_SUB_PATH}/test/encryption"
 }
 
 # Helper to count files matching a pattern
@@ -361,25 +364,23 @@ count_files() {
 # =============================================================================
 
 @test "encrypt: empty directory (no raw files) exits cleanly" {
-  EMPTY_DIR=$(mktemp -d)
+  EMPTY_DIR="${OUTPUT_SUB_PATH}/test/encryption/empty-secrets"
+  mkdir -p "${EMPTY_DIR}"
 
   run "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256" --dir "${EMPTY_DIR}"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"No .raw files found"* ]]
-
-  rm -rf "${EMPTY_DIR}"
 }
 
 @test "decrypt: empty directory (no encrypted files) exits cleanly" {
-  EMPTY_DIR=$(mktemp -d)
+  EMPTY_DIR="${OUTPUT_SUB_PATH}/test/encryption/empty-secrets"
+  mkdir -p "${EMPTY_DIR}"
 
   run "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256" --dir "${EMPTY_DIR}"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"No .sha256.aes256 files found"* ]]
-
-  rm -rf "${EMPTY_DIR}"
 }
 
 # =============================================================================
