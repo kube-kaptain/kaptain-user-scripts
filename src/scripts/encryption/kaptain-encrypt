@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Kaptain encrypt router - auto-detects/defaults encryption type and delegates
+#
+# Type selection logic:
+# 1. Directory with only .raw files: default to age
+# 2. Directory with some encrypted files: use that type
+# 3. Mixed encrypted types: error
+# 4. Explicit --type override always wins
+#
+# Usage: kaptain-encrypt [--type TYPE] [--dir DIR]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_SECRETS_DIR="src/secrets"
+DEFAULT_TYPE="age"
+
+# Parse arguments
+TYPE=""
+DIR="${DEFAULT_SECRETS_DIR}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --type)
+      TYPE="$2"
+      shift 2
+      ;;
+    --dir)
+      DIR="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: kaptain encrypt [--type TYPE] [--dir DIR]"
+      echo ""
+      echo "Options:"
+      echo "  --type TYPE   Encryption type (default: age, or matches existing)"
+      echo "  --dir DIR     Target directory (default: src/secrets)"
+      echo ""
+      echo "Supported types: age, sha256.aes256, sha256.aes256.10k, sha256.aes256.100k, sha256.aes256.600k"
+      exit 0
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ ! -d "${DIR}" ]]; then
+  echo "ERROR: Directory not found: ${DIR}" >&2
+  exit 1
+fi
+
+# Discover supported types from available scripts
+declare -A SUPPORTED_TYPES
+for script in "${SCRIPT_DIR}"/kaptain-encrypt-*; do
+  if [[ -x "${script}" ]]; then
+    suffix="${script##*kaptain-encrypt-}"
+    SUPPORTED_TYPES["${suffix}"]=1
+  fi
+done
+
+# Detect existing encryption type in directory
+detect_existing_type() {
+  local found_type=""
+
+  for suffix in "${!SUPPORTED_TYPES[@]}"; do
+    local ext=".${suffix}"
+    local count
+    count=$(find "${DIR}" -name "*${ext}" -type f 2>/dev/null | wc -l | tr -d ' ')
+
+    if [[ ${count} -gt 0 ]]; then
+      if [[ -n "${found_type}" && "${found_type}" != "${suffix}" ]]; then
+        echo "ERROR: Mixed encryption types detected in ${DIR}" >&2
+        echo "  Found: .${found_type} and .${suffix}" >&2
+        echo "  Use --type to specify which to use" >&2
+        exit 1
+      fi
+      found_type="${suffix}"
+    fi
+  done
+
+  echo "${found_type}"
+}
+
+# Determine type
+if [[ -z "${TYPE}" ]]; then
+  existing_type=$(detect_existing_type)
+
+  if [[ -n "${existing_type}" ]]; then
+    TYPE="${existing_type}"
+    echo "Using existing encryption type: ${TYPE}"
+  else
+    TYPE="${DEFAULT_TYPE}"
+    echo "No existing encrypted files, defaulting to: ${TYPE}"
+  fi
+fi
+
+# Validate type
+if [[ -z "${SUPPORTED_TYPES[${TYPE}]:-}" ]]; then
+  echo "ERROR: Unsupported encryption type: ${TYPE}" >&2
+  echo "Supported types: ${!SUPPORTED_TYPES[*]}" >&2
+  exit 1
+fi
+
+# Delegate to specific script
+ENCRYPT_SCRIPT="${SCRIPT_DIR}/kaptain-encrypt-${TYPE}"
+
+if [[ ! -x "${ENCRYPT_SCRIPT}" ]]; then
+  echo "ERROR: Encrypt script not found: ${ENCRYPT_SCRIPT}" >&2
+  exit 1
+fi
+
+# Export DIR for the script (they currently use hardcoded path, but future-proofing)
+export SECRETS_DIR="${DIR}"
+exec "${ENCRYPT_SCRIPT}"
