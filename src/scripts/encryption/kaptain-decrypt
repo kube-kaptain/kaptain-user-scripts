@@ -15,26 +15,41 @@ DEFAULT_SECRETS_DIR="src/secrets"
 TYPE=""
 DIR="${DEFAULT_SECRETS_DIR}"
 
+usage() {
+  echo "Usage: kaptain decrypt [--type TYPE] [--dir DIR]"
+  echo ""
+  echo "Options:"
+  echo "  --type TYPE   Encryption type (auto-detected if omitted)"
+  echo "  --dir DIR     Target directory (default: src/secrets)"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --type)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --type requires a value" >&2
+        usage >&2
+        exit 1
+      fi
       TYPE="$2"
       shift 2
       ;;
     --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --dir requires a value" >&2
+        usage >&2
+        exit 1
+      fi
       DIR="$2"
       shift 2
       ;;
     -h|--help)
-      echo "Usage: kaptain decrypt [--type TYPE] [--dir DIR]"
-      echo ""
-      echo "Options:"
-      echo "  --type TYPE   Encryption type (auto-detected if omitted)"
-      echo "  --dir DIR     Target directory (default: src/secrets)"
+      usage
       exit 0
       ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
+      usage >&2
       exit 1
       ;;
   esac
