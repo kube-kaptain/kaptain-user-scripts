@@ -54,7 +54,7 @@ echo
 echo "Available kaptain scripts:"
 for cmd in "${SCRIPT_DIR}"/kaptain-*; do
   if [[ -x "${cmd}" ]]; then
-    echo"$(basename "${cmd}")"
+    echo "  $(basename "${cmd}")"
   fi
 done
 echo

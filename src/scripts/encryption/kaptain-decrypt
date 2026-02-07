@@ -61,20 +61,32 @@ if [[ ! -d "${DIR}" ]]; then
 fi
 
 # Discover supported types from available scripts
-declare -A SUPPORTED_TYPES
+SUPPORTED_TYPES=()
 for script in "${SCRIPT_DIR}"/kaptain-decrypt-*; do
   if [[ -x "${script}" ]]; then
     suffix="${script##*kaptain-decrypt-}"
-    SUPPORTED_TYPES["${suffix}"]=1
+    SUPPORTED_TYPES+=("${suffix}")
   fi
 done
+
+# Check if type is supported
+is_supported_type() {
+  local check_type="$1"
+  local t
+  for t in "${SUPPORTED_TYPES[@]}"; do
+    if [[ "${t}" == "${check_type}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
 
 # Build extension list for detection
 detect_type() {
   local found_type=""
   local found_count=0
 
-  for suffix in "${!SUPPORTED_TYPES[@]}"; do
+  for suffix in "${SUPPORTED_TYPES[@]}"; do
     # Check for files with this extension
     local ext=".${suffix}"
     local count
@@ -94,7 +106,7 @@ detect_type() {
 
   if [[ -z "${found_type}" ]]; then
     echo "ERROR: No encrypted files found in ${DIR}" >&2
-    echo "Supported extensions: ${!SUPPORTED_TYPES[*]}" >&2
+    echo "Supported extensions: ${SUPPORTED_TYPES[*]}" >&2
     exit 1
   fi
 
@@ -108,9 +120,9 @@ if [[ -z "${TYPE}" ]]; then
 fi
 
 # Validate type
-if [[ -z "${SUPPORTED_TYPES[${TYPE}]:-}" ]]; then
+if ! is_supported_type "${TYPE}"; then
   echo "ERROR: Unsupported encryption type: ${TYPE}" >&2
-  echo "Supported types: ${!SUPPORTED_TYPES[*]}" >&2
+  echo "Supported types: ${SUPPORTED_TYPES[*]}" >&2
   exit 1
 fi
 
