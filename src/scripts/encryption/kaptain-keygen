@@ -10,12 +10,28 @@ set -euo pipefail
 TYPE="age"
 OUTPUT=""
 
+usage() {
+  echo "Usage: $(basename "$0") [--type age|plain] [--output FILE]"
+  echo ""
+  echo "Generate an encryption/decryption key for kaptain-encrypt/decrypt."
+  echo ""
+  echo "Options:"
+  echo "  --type TYPE     Key type: age (default) or plain"
+  echo "  --output FILE   Write key to file instead of stdout"
+  echo "  -h, --help      Show this help"
+}
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
     --type)
       if [[ $# -lt 2 ]]; then
         echo "ERROR: --type requires a value" >&2
+        usage
         exit 1
       fi
       TYPE="$2"
@@ -24,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --output)
       if [[ $# -lt 2 ]]; then
         echo "ERROR: --output requires a value" >&2
+        usage
         exit 1
       fi
       OUTPUT="$2"
@@ -31,7 +48,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
-      echo "Usage: $(basename "$0") [--type age|plain] [--output FILE]" >&2
+      usage
       exit 1
       ;;
   esac
