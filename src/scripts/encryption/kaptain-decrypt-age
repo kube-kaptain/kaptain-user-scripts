@@ -61,10 +61,14 @@ if [[ "${identity}" != AGE-SECRET-KEY-* ]]; then
   exit 1
 fi
 
-# Write identity to temp file for age -i
-identity_file=$(mktemp)
-trap 'rm -f "${identity_file}"' EXIT
+# Set up secure temp directory and write identity file
+KAPTAIN_TMP="${HOME}/.kaptain-tmp"
+mkdir -p "${KAPTAIN_TMP}"
+chmod 700 "${KAPTAIN_TMP}"
+identity_file="${KAPTAIN_TMP}/age-identity.$$"
+trap 'rm -f "${identity_file}"; rmdir "${KAPTAIN_TMP}" 2>/dev/null || true' EXIT
 echo "${identity}" > "${identity_file}"
+chmod 600 "${identity_file}"
 
 # Decrypt each file
 success_count=0

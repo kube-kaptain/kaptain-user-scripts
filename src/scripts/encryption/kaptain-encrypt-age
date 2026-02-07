@@ -69,18 +69,23 @@ fi
 # Derive public key (recipient) from identity
 recipient=$(echo "${identity}" | age-keygen -y)
 
+# Set up secure temp directory
+KAPTAIN_TMP="${HOME}/.kaptain-tmp"
+mkdir -p "${KAPTAIN_TMP}"
+chmod 700 "${KAPTAIN_TMP}"
+identity_file="${KAPTAIN_TMP}/age-identity.$$"
+trap 'rm -f "${identity_file}"; rmdir "${KAPTAIN_TMP}" 2>/dev/null || true' EXIT
+
 # Validate key against existing encrypted files
 existing_file=$(find "${SECRETS_DIR}" -name "*.age" -type f | head -1)
 if [[ -n "${existing_file}" ]]; then
   echo "Validating key against existing encrypted file..."
-  identity_file=$(mktemp)
   echo "${identity}" > "${identity_file}"
+  chmod 600 "${identity_file}"
   if ! age -d -i "${identity_file}" < "${existing_file}" > /dev/null 2>&1; then
-    rm -f "${identity_file}"
     echo "ERROR: Key does not match existing encrypted files" >&2
     exit 1
   fi
-  rm -f "${identity_file}"
   echo "Key validated."
 fi
 
