@@ -119,3 +119,52 @@ SCRIPTS_DIR="src/scripts/encryption"
   [ "$status" -eq 0 ]
   [[ "$output" == *"AGE-SECRET-KEY-"* ]]
 }
+
+# kaptain-encryption-check-ignores tests
+@test "kaptain-encryption-check-ignores: missing --dir value fails" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-check-ignores" --dir
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: --dir requires a value"* ]]
+}
+
+@test "kaptain-encryption-check-ignores: unknown option fails" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-check-ignores" --bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: Unknown option"* ]]
+}
+
+@test "kaptain-encryption-check-ignores: nonexistent directory fails" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-check-ignores" --dir /nonexistent/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: Secrets dir"* ]]
+}
+
+@test "kaptain-encryption-check-ignores: absolute path does not hang" {
+  # This test verifies the fix for infinite loop with absolute paths
+  # Create a temp directory structure with absolute path
+  TEST_REPO=$(mktemp -d)
+
+  # Set up fake git repo
+  mkdir -p "${TEST_REPO}/.git"
+  mkdir -p "${TEST_REPO}/secrets"
+
+  # Add proper gitignore patterns
+  cat > "${TEST_REPO}/.gitignore" << 'EOF'
+**/*secrets/*.raw
+**/*secrets/*.txt
+EOF
+
+  # Run from the fake repo root with absolute path - should complete without hanging
+  # Use timeout to catch infinite loop (5 seconds is plenty)
+  local exit_code=0
+  timeout 5 bash -c "cd '${TEST_REPO}' && '${PWD}/${SCRIPTS_DIR}/kaptain-encryption-check-ignores' --dir '${TEST_REPO}/secrets'" || exit_code=$?
+
+  # Cleanup
+  rm -rf "${TEST_REPO}"
+
+  # Timeout exits with 124 - explicitly fail with message if that happens
+  if [ "${exit_code}" -eq 124 ]; then
+    echo "FAIL: Script timed out - infinite loop detected with absolute path" >&2
+    return 1
+  fi
+}

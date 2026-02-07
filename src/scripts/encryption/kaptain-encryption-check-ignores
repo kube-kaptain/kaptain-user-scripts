@@ -121,8 +121,8 @@ while true; do
     fi
   fi
 
-  # Stop at repo root
-  if [[ "${check_dir}" == "." ]]; then
+  # Stop at repo root (or filesystem root for absolute paths)
+  if [[ "${check_dir}" == "." || "${check_dir}" == "/" ]]; then
     break
   fi
 
