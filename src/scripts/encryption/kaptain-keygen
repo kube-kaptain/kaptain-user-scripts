@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Generate an encryption/decryption key for use with kaptain-encrypt/decrypt.
+#
+# Usage: kaptain-keygen [--type age|plain] [--output FILE]
+set -euo pipefail
+
+TYPE="age"
+OUTPUT=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --type)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --type requires a value" >&2
+        exit 1
+      fi
+      TYPE="$2"
+      shift 2
+      ;;
+    --output)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --output requires a value" >&2
+        exit 1
+      fi
+      OUTPUT="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      echo "Usage: $(basename "$0") [--type age|plain] [--output FILE]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Validate type and generate key
+case "${TYPE}" in
+  age)
+    if ! command -v age-keygen &> /dev/null; then
+      echo "ERROR: age-keygen is required but not installed" >&2
+      exit 1
+    fi
+    key=$(age-keygen 2>/dev/null | grep '^AGE-SECRET-KEY-')
+    ;;
+  plain)
+    if ! command -v openssl &> /dev/null; then
+      echo "ERROR: openssl is required but not installed" >&2
+      exit 1
+    fi
+    key=$(openssl rand -hex 20)
+    ;;
+  *)
+    echo "ERROR: Unknown type: ${TYPE}" >&2
+    echo "Supported types: age, plain" >&2
+    exit 1
+    ;;
+esac
+
+if [[ -z "${key}" ]]; then
+  echo "ERROR: Failed to generate key" >&2
+  exit 1
+fi
+
+# Output
+if [[ -n "${OUTPUT}" ]]; then
+  echo "${key}" > "${OUTPUT}"
+  echo "Key written to ${OUTPUT}"
+  echo ""
+  echo "Keep this file safe - store it in a password manager..."
+  echo "... or secure location with correct permissions/umask."
+else
+  echo "Generating encryption / decryption key..."
+  echo ""
+  echo "${key}"
+  echo ""
+  echo "Keep this key safe - store it in a password manager..."
+  echo "... or a secure google sheet or something with good RBAC."
+fi
