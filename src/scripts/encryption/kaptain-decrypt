@@ -60,6 +60,9 @@ if [[ ! -d "${DIR}" ]]; then
   exit 1
 fi
 
+# Check gitignore configuration before proceeding
+"${SCRIPT_DIR}/kaptain-encryption-check-ignores" --dir "${DIR}"
+
 # Discover supported types from available scripts
 SUPPORTED_TYPES=()
 for script in "${SCRIPT_DIR}"/kaptain-decrypt-*; do
