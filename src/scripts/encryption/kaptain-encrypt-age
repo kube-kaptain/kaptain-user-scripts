@@ -69,6 +69,21 @@ fi
 # Derive public key (recipient) from identity
 recipient=$(echo "${identity}" | age-keygen -y)
 
+# Validate key against existing encrypted files
+existing_file=$(find "${SECRETS_DIR}" -name "*.age" -type f | head -1)
+if [[ -n "${existing_file}" ]]; then
+  echo "Validating key against existing encrypted file..."
+  identity_file=$(mktemp)
+  echo "${identity}" > "${identity_file}"
+  if ! age -d -i "${identity_file}" < "${existing_file}" > /dev/null 2>&1; then
+    rm -f "${identity_file}"
+    echo "ERROR: Key does not match existing encrypted files" >&2
+    exit 1
+  fi
+  rm -f "${identity_file}"
+  echo "Key validated."
+fi
+
 # Encrypt each file
 for raw_file in "${raw_files[@]}"; do
   age_file="${raw_file%.raw}.age"

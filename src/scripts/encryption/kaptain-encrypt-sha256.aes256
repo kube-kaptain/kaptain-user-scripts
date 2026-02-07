@@ -61,6 +61,18 @@ echo "Found ${#raw_files[@]} .raw file(s) to encrypt"
 read -r -s -p "Enter passphrase: " passphrase
 echo
 
+# Validate key against existing encrypted files
+existing_file=$(find "${SECRETS_DIR}" -name "*.${SUFFIX}" -type f | head -1)
+if [[ -n "${existing_file}" ]]; then
+  echo "Validating key against existing encrypted file..."
+  if ! openssl enc -md sha256 -pbkdf2 -iter "${ITERATIONS}" -aes-256-cbc -d -base64 \
+    -in "${existing_file}" -k "${passphrase}" > /dev/null 2>&1; then
+    echo "ERROR: Key does not match existing encrypted files" >&2
+    exit 1
+  fi
+  echo "Key validated."
+fi
+
 # Encrypt each file
 for raw_file in "${raw_files[@]}"; do
   out_file="${raw_file%.raw}.${SUFFIX}"
