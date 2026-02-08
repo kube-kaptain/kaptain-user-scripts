@@ -10,7 +10,6 @@
 # Usage: decrypt-secrets-sha256.aes256
 set -euo pipefail
 
-ITERATIONS=10000
 SUFFIX="sha256.aes256"
 
 # Handle --dir argument
@@ -73,7 +72,7 @@ failed_files=()
 echo "Decrypting ${#enc_files[@]} .${SUFFIX} file(s)..."
 for enc_file in "${enc_files[@]}"; do
   txt_file="${enc_file%.${SUFFIX}}.txt"
-  if openssl enc -md sha256 -pbkdf2 -iter "${ITERATIONS}" -aes-256-cbc -d -base64 \
+  if openssl enc -md sha256 -pbkdf2 -aes-256-cbc -d -base64 \
     -in "${enc_file}" -out "${txt_file}" -k "${passphrase}" 2>/dev/null; then
     echo "OK: ${enc_file}"
     success_count=$((success_count + 1))
