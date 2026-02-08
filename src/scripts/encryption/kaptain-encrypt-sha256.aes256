@@ -10,7 +10,6 @@
 # Usage: encrypt-secrets-sha256.aes256
 set -euo pipefail
 
-ITERATIONS=10000
 SUFFIX="sha256.aes256"
 
 # Handle --dir argument
@@ -69,7 +68,7 @@ echo
 existing_file=$(find "${SECRETS_DIR}" -name "*.${SUFFIX}" -type f | head -1)
 if [[ -n "${existing_file}" ]]; then
   echo "Validating key against existing encrypted file..."
-  if ! openssl enc -md sha256 -pbkdf2 -iter "${ITERATIONS}" -aes-256-cbc -d -base64 \
+  if ! openssl enc -md sha256 -pbkdf2 -aes-256-cbc -d -base64 \
     -in "${existing_file}" -k "${passphrase}" > /dev/null 2>&1; then
     echo "ERROR: Key does not match existing encrypted files" >&2
     exit 1
@@ -81,7 +80,7 @@ fi
 for raw_file in "${raw_files[@]}"; do
   out_file="${raw_file%.raw}.${SUFFIX}"
   echo "Encrypting ${raw_file} -> ${out_file}"
-  openssl enc -md sha256 -pbkdf2 -iter "${ITERATIONS}" -aes-256-cbc -base64 \
+  openssl enc -md sha256 -pbkdf2 -aes-256-cbc -base64 \
     -in "${raw_file}" -out "${out_file}" -k "${passphrase}"
 done
 
