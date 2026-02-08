@@ -47,6 +47,7 @@ echo "  Created: kaptain-user-scripts.zip"
 echo "Copying cli scripts..."
 cp "${SCRIPTS}/cli/kaptain" "${PACKAGE_DIR}/cli/scripts/"
 cp "${SCRIPTS}/cli/kaptain-help" "${PACKAGE_DIR}/cli/scripts/"
+cp "${SCRIPTS}/cli/kaptain-clean" "${PACKAGE_DIR}/cli/scripts/"
 cd "${PACKAGE_DIR}/cli"
 zip -r kaptain-user-scripts-cli.zip scripts/
 cd -
