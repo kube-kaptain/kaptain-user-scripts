@@ -62,7 +62,8 @@ fi
 echo "Found ${#raw_files[@]} .raw file(s) to encrypt"
 
 # Prompt for identity (secret key)
-read -r -p "Enter passphrase: " identity
+read -r -s -p "Enter passphrase: " identity
+echo
 
 # Validate identity is a valid age secret key
 if [[ "${identity}" != AGE-SECRET-KEY-* ]]; then

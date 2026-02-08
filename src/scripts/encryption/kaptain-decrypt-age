@@ -57,7 +57,8 @@ fi
 echo "Found ${#age_files[@]} .age file(s) to decrypt"
 
 # Prompt for identity (secret key)
-read -r -p "Enter passphrase: " identity
+read -r -s -p "Enter passphrase: " identity
+echo
 
 # Validate identity is a valid age secret key
 if [[ "${identity}" != AGE-SECRET-KEY-* ]]; then
