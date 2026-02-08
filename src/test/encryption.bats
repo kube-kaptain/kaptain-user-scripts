@@ -39,6 +39,12 @@ SCRIPTS_DIR="src/scripts/encryption"
   [[ "$output" == *"ERROR: Unknown option"* ]]
 }
 
+@test "kaptain-encrypt: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encrypt" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
 # kaptain-decrypt router tests
 @test "kaptain-decrypt: --help shows usage" {
   run "${SCRIPTS_DIR}/kaptain-decrypt" --help
@@ -70,6 +76,12 @@ SCRIPTS_DIR="src/scripts/encryption"
   run "${SCRIPTS_DIR}/kaptain-decrypt" --bogus
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: Unknown option"* ]]
+}
+
+@test "kaptain-decrypt: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-decrypt" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
 }
 
 # kaptain-keygen tests
@@ -137,6 +149,74 @@ SCRIPTS_DIR="src/scripts/encryption"
   run "${SCRIPTS_DIR}/kaptain-encryption-check-ignores" --dir /nonexistent/path
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: Secrets dir"* ]]
+}
+
+@test "kaptain-encryption-check-ignores: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-check-ignores" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+# Individual encrypt scripts - absolute path rejection
+@test "kaptain-encrypt-age: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encrypt-age" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-encrypt-sha256.aes256: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-encrypt-sha256.aes256.10k: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256.10k" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-encrypt-sha256.aes256.100k: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256.100k" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-encrypt-sha256.aes256.600k: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256.600k" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+# Individual decrypt scripts - absolute path rejection
+@test "kaptain-decrypt-age: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-decrypt-age" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-decrypt-sha256.aes256: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-decrypt-sha256.aes256.10k: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256.10k" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-decrypt-sha256.aes256.100k: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256.100k" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-decrypt-sha256.aes256.600k: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256.600k" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
 }
 
 @test "kaptain-encryption-check-ignores: absolute path does not hang" {
