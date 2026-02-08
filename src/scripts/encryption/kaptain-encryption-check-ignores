@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Check that sensitive secret files are properly gitignored.
+# Verifies .raw and .txt files in secrets directories won't be committed.
+# Run from repo root.
+#
+# Usage: kaptain-encryption-check-ignores [--dir DIR]
+set -euo pipefail
+
+SECRETS_DIR="${SECRETS_DIR:-src/secrets}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --dir requires a value" >&2
+        exit 1
+      fi
+      SECRETS_DIR="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Reject absolute paths
+if [[ "${SECRETS_DIR}" == /* ]]; then
+  echo "ERROR: --dir must be a relative path, i.e. a sub path of this repo" >&2
+  exit 1
+fi
+
+# Secrets dir must exist
+if [[ ! -d "${SECRETS_DIR}" ]]; then
+  echo "ERROR: Secrets dir ${SECRETS_DIR}/ does not exist." >&2
+  exit 1
+fi
+
+# Must be run from repo root
+if [[ ! -d ".git" ]]; then
+  echo "ERROR: Not in repo root (.git/ not found)" >&2
+  exit 1
+fi
+
+# Check if a pattern exists in a file
+pattern_in_file() {
+  local file="$1"
+  local pattern="$2"
+  if [[ -f "${file}" ]]; then
+    grep -qE "${pattern}" "${file}" 2>/dev/null
+    return $?
+  fi
+  return 1
+}
+
+# Patterns we need to find (escaped for grep -E)
+# **/*secrets/*.raw matches any dir ending in "secrets" anywhere
+# Anchored to start/end of line to avoid matching comments
+RAW_PATTERNS=(
+  '^\*\*/\*secrets/\*\.raw$'
+)
+
+TXT_PATTERNS=(
+  '^\*\*/\*secrets/\*\.txt$'
+)
+
+FOUND_RAW=false
+FOUND_TXT=false
+
+# Check global gitignore first (the right way)
+GLOBAL_IGNORE=""
+if command -v git &> /dev/null; then
+  GLOBAL_IGNORE=$(git config --global core.excludesFile 2>/dev/null || echo "")
+  # Expand ~ if present
+  if [[ "${GLOBAL_IGNORE}" == "~/"* ]]; then
+    GLOBAL_IGNORE="${HOME}/${GLOBAL_IGNORE#\~/}"
+  fi
+fi
+
+if [[ -n "${GLOBAL_IGNORE}" ]]; then
+  if [[ -f "${GLOBAL_IGNORE}" ]]; then
+    for pattern in "${RAW_PATTERNS[@]}"; do
+      if pattern_in_file "${GLOBAL_IGNORE}" "${pattern}"; then
+        FOUND_RAW=true
+        break
+      fi
+    done
+    for pattern in "${TXT_PATTERNS[@]}"; do
+      if pattern_in_file "${GLOBAL_IGNORE}" "${pattern}"; then
+        FOUND_TXT=true
+        break
+      fi
+    done
+  else
+    echo "  ERROR: Global excludes file configured but does not exist."
+    echo "  ERROR: This is a misconfiguration, period, create the file."
+    echo "  ERROR: Or remove the configuration in ~/.gitconfig for it."
+    exit 1
+  fi
+fi
+
+# Check .gitignore files from secrets dir up to repo root
+check_dir="${SECRETS_DIR}"
+while true; do
+  gitignore="${check_dir}/.gitignore"
+  if [[ -f "${gitignore}" ]]; then
+    if [[ "${FOUND_RAW}" != "true" ]]; then
+      for pattern in "${RAW_PATTERNS[@]}"; do
+        if pattern_in_file "${gitignore}" "${pattern}"; then
+          FOUND_RAW=true
+          break
+        fi
+      done
+    fi
+
+    if [[ "${FOUND_TXT}" != "true" ]]; then
+      for pattern in "${TXT_PATTERNS[@]}"; do
+        if pattern_in_file "${gitignore}" "${pattern}"; then
+          FOUND_TXT=true
+          break
+        fi
+      done
+    fi
+  fi
+
+  # Stop at repo root (or filesystem root for absolute paths)
+  if [[ "${check_dir}" == "." || "${check_dir}" == "/" ]]; then
+    break
+  fi
+
+  # Move up one directory
+  check_dir="$(dirname "${check_dir}")"
+done
+
+# Report findings
+FAILED=false
+
+if [[ "${FOUND_RAW}" == "false" ]]; then
+  echo ""
+  echo "  [FAIL] Secret '.raw' files are NOT ignored!"
+  FAILED=true
+fi
+
+if [[ "${FOUND_TXT}" == "false" ]]; then
+  echo ""
+  echo "  [FAIL] Secret '.txt' files are NOT ignored!"
+  FAILED=true
+fi
+
+
+if [[ "${FAILED}" == "true" ]]; then
+  echo ""
+  echo "====================== Kaptain is steering you to success ======================"
+  echo ""
+  echo "        Clear text secrets (.raw, .txt) should NEVER be committed to git."
+  echo ""
+  echo "      You are required to ignore the following patterns somewhere/somehow: "
+  echo ""
+  echo "        - '**/*secrets/*.raw' (pre-encryption)"
+  echo "        - '**/*secrets/*.txt' (post-decryption)"
+  echo ""
+  echo "===================== Advice on correct local system setup ====================="
+  echo ""
+  echo "Option 1: Global git ignore (RECOMMENDED)"
+  echo "  This protects you across ALL repositories and prevents duplication."
+  echo ""
+  if [[ -z "${GLOBAL_IGNORE}" ]]; then
+    echo "  # Set up global gitignore:"
+    echo "  git config --global core.excludesFile ~/.gitignore_global"
+    echo ""
+    echo "  # Add patterns to ~/.gitignore_global:"
+    echo "  echo '# Ignore clear text secrets:' >> ~/.gitignore_global"
+    echo "  echo '**/*secrets/*.raw' >> ~/.gitignore_global"
+    echo "  echo '**/*secrets/*.txt' >> ~/.gitignore_global"
+  else
+    echo "  # Add patterns to your existing global ignore:"
+    echo "  echo '# Ignore clear text secrets:' >> ${GLOBAL_IGNORE}"
+    echo "  echo '**/*secrets/*.raw' >> ${GLOBAL_IGNORE}"
+    echo "  echo '**/*secrets/*.txt' >> ${GLOBAL_IGNORE}"
+  fi
+  echo ""
+  echo "Option 2: Repository .gitignore (NOT recommended)"
+  echo ""
+  echo "  echo '# Ignore clear text secrets:' >> .gitignore"
+  echo "  echo '**/*secrets/*.raw' >> .gitignore"
+  echo "  echo '**/*secrets/*.txt' >> .gitignore"
+  echo ""
+  echo "================================================================================"
+  echo ""
+  exit 1
+fi

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Kaptain clean router - delegates to kaptain-clean-<target> scripts
+#
+# Usage: kaptain-clean <target> [options]
+#        kaptain clean secrets [--dir DIR]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  echo "Usage: kaptain clean <target> [options]"
+  echo ""
+  echo "Targets:"
+  for script in "${SCRIPT_DIR}"/kaptain-clean-*; do
+    if [[ -x "${script}" ]]; then
+      target="${script##*kaptain-clean-}"
+      echo "  ${target}"
+    fi
+  done
+  echo ""
+  echo "Run 'kaptain clean <target> --help' for target-specific options."
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 1
+fi
+
+target="$1"
+shift
+
+case "${target}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    CLEAN_SCRIPT="${SCRIPT_DIR}/kaptain-clean-${target}"
+    if [[ -x "${CLEAN_SCRIPT}" ]]; then
+      exec "${CLEAN_SCRIPT}" "$@"
+    else
+      echo "ERROR: Unknown clean target: ${target}" >&2
+      echo "" >&2
+      usage >&2
+      exit 1
+    fi
+    ;;
+esac

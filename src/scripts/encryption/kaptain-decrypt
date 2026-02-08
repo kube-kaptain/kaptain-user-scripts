@@ -55,10 +55,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Reject absolute paths
+if [[ "${DIR}" == /* ]]; then
+  echo "ERROR: --dir must be a relative path, i.e. a sub path of this repo" >&2
+  exit 1
+fi
+
 if [[ ! -d "${DIR}" ]]; then
   echo "ERROR: Directory not found: ${DIR}" >&2
   exit 1
 fi
+
+# Check gitignore configuration before proceeding
+"${SCRIPT_DIR}/kaptain-encryption-check-ignores" --dir "${DIR}"
 
 # Discover supported types from available scripts
 SUPPORTED_TYPES=()

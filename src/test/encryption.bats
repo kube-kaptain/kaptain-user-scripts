@@ -28,7 +28,7 @@ SCRIPTS_DIR="src/scripts/encryption"
 }
 
 @test "kaptain-encrypt: nonexistent directory fails" {
-  run "${SCRIPTS_DIR}/kaptain-encrypt" --dir /nonexistent/path
+  run "${SCRIPTS_DIR}/kaptain-encrypt" --dir nonexistent/path
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: Directory not found"* ]]
 }
@@ -37,6 +37,12 @@ SCRIPTS_DIR="src/scripts/encryption"
   run "${SCRIPTS_DIR}/kaptain-encrypt" --bogus
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: Unknown option"* ]]
+}
+
+@test "kaptain-encrypt: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encrypt" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
 }
 
 # kaptain-decrypt router tests
@@ -61,7 +67,7 @@ SCRIPTS_DIR="src/scripts/encryption"
 }
 
 @test "kaptain-decrypt: nonexistent directory fails" {
-  run "${SCRIPTS_DIR}/kaptain-decrypt" --dir /nonexistent/path
+  run "${SCRIPTS_DIR}/kaptain-decrypt" --dir nonexistent/path
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: Directory not found"* ]]
 }
@@ -70,6 +76,12 @@ SCRIPTS_DIR="src/scripts/encryption"
   run "${SCRIPTS_DIR}/kaptain-decrypt" --bogus
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: Unknown option"* ]]
+}
+
+@test "kaptain-decrypt: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-decrypt" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
 }
 
 # kaptain-keygen tests
@@ -118,4 +130,121 @@ SCRIPTS_DIR="src/scripts/encryption"
   run "${SCRIPTS_DIR}/kaptain-keygen" --type age
   [ "$status" -eq 0 ]
   [[ "$output" == *"AGE-SECRET-KEY-"* ]]
+}
+
+# kaptain-encryption-check-ignores tests
+@test "kaptain-encryption-check-ignores: missing --dir value fails" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-check-ignores" --dir
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: --dir requires a value"* ]]
+}
+
+@test "kaptain-encryption-check-ignores: unknown option fails" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-check-ignores" --bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: Unknown option"* ]]
+}
+
+@test "kaptain-encryption-check-ignores: nonexistent directory fails" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-check-ignores" --dir nonexistent/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: Secrets dir"* ]]
+}
+
+@test "kaptain-encryption-check-ignores: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-check-ignores" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+# Individual encrypt scripts - absolute path rejection
+@test "kaptain-encrypt-age: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encrypt-age" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-encrypt-sha256.aes256: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-encrypt-sha256.aes256.10k: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256.10k" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-encrypt-sha256.aes256.100k: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256.100k" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-encrypt-sha256.aes256.600k: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256.600k" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+# Individual decrypt scripts - absolute path rejection
+@test "kaptain-decrypt-age: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-decrypt-age" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-decrypt-sha256.aes256: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-decrypt-sha256.aes256.10k: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256.10k" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-decrypt-sha256.aes256.100k: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256.100k" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-decrypt-sha256.aes256.600k: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256.600k" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
+}
+
+@test "kaptain-encryption-check-ignores: absolute path does not hang" {
+  # This test verifies the fix for infinite loop with absolute paths
+  # Create a temp directory structure with absolute path
+  TEST_REPO=$(mktemp -d)
+
+  # Set up fake git repo
+  mkdir -p "${TEST_REPO}/.git"
+  mkdir -p "${TEST_REPO}/secrets"
+
+  # Add proper gitignore patterns
+  cat > "${TEST_REPO}/.gitignore" << 'EOF'
+**/*secrets/*.raw
+**/*secrets/*.txt
+EOF
+
+  # Run from the fake repo root with absolute path - should complete without hanging
+  # Use timeout to catch infinite loop (5 seconds is plenty)
+  local exit_code=0
+  timeout 5 bash -c "cd '${TEST_REPO}' && '${PWD}/${SCRIPTS_DIR}/kaptain-encryption-check-ignores' --dir '${TEST_REPO}/secrets'" || exit_code=$?
+
+  # Cleanup
+  rm -rf "${TEST_REPO}"
+
+  # Timeout exits with 124 - explicitly fail with message if that happens
+  if [ "${exit_code}" -eq 124 ]; then
+    echo "FAIL: Script timed out - infinite loop detected with absolute path" >&2
+    return 1
+  fi
 }
