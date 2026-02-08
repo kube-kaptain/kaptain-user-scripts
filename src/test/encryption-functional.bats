@@ -15,6 +15,13 @@ setup() {
   rm -rf "${OUTPUT_SUB_PATH}/test/encryption"
   mkdir -p "${TEST_DIR}"
   cp -r "${FIXTURES_DIR}"/* "${TEST_DIR}"/
+
+  # Add gitignore patterns required by kaptain-encryption-check-ignores
+  # This ensures router tests pass in CI where global gitignore isn't configured
+  cat > "${OUTPUT_SUB_PATH}/test/encryption/.gitignore" << 'EOF'
+**/*secrets/*.raw
+**/*secrets/*.txt
+EOF
 }
 
 # Teardown: clean up test directory
