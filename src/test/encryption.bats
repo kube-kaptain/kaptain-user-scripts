@@ -28,7 +28,7 @@ SCRIPTS_DIR="src/scripts/encryption"
 }
 
 @test "kaptain-encrypt: nonexistent directory fails" {
-  run "${SCRIPTS_DIR}/kaptain-encrypt" --dir /nonexistent/path
+  run "${SCRIPTS_DIR}/kaptain-encrypt" --dir nonexistent/path
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: Directory not found"* ]]
 }
@@ -67,7 +67,7 @@ SCRIPTS_DIR="src/scripts/encryption"
 }
 
 @test "kaptain-decrypt: nonexistent directory fails" {
-  run "${SCRIPTS_DIR}/kaptain-decrypt" --dir /nonexistent/path
+  run "${SCRIPTS_DIR}/kaptain-decrypt" --dir nonexistent/path
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: Directory not found"* ]]
 }
@@ -146,7 +146,7 @@ SCRIPTS_DIR="src/scripts/encryption"
 }
 
 @test "kaptain-encryption-check-ignores: nonexistent directory fails" {
-  run "${SCRIPTS_DIR}/kaptain-encryption-check-ignores" --dir /nonexistent/path
+  run "${SCRIPTS_DIR}/kaptain-encryption-check-ignores" --dir nonexistent/path
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: Secrets dir"* ]]
 }
