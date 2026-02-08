@@ -22,6 +22,10 @@ elif [[ $# -eq 2 ]]; then
     echo "Usage: $(basename "$0") [--dir DIR]" >&2
     exit 1
   fi
+  if [[ "$2" == /* ]]; then
+    echo "ERROR: --dir must be a relative path, i.e. a sub path of this repo" >&2
+    exit 1
+  fi
   if [[ ! -d "$2" ]]; then
     echo "ERROR: Directory not found: $2" >&2
     exit 1
