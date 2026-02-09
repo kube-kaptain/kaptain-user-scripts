@@ -9,13 +9,13 @@ ENC_SCRIPTS_DIR="src/scripts/encryption"
 OUTPUT_SUB_PATH="${OUTPUT_SUB_PATH:-target}"
 
 setup() {
-  # Relative paths for --dir arguments (script rejects absolute paths)
-  TEST_BIN="${OUTPUT_SUB_PATH}/test/bin"
+  # Test directory matching bats filename
   TEST_CLEAN="${OUTPUT_SUB_PATH}/test/clean"
+  TEST_BIN="${TEST_CLEAN}/bin"
 
   # Absolute paths for --all tests that cd to different directories
-  TEST_BIN_ABS="$(pwd)/${TEST_BIN}"
   TEST_CLEAN_ABS="$(pwd)/${TEST_CLEAN}"
+  TEST_BIN_ABS="$(pwd)/${TEST_BIN}"
 
   # Clean up from previous test runs to prevent pollution
   rm -rf "${TEST_CLEAN}"
@@ -25,9 +25,9 @@ setup() {
   mkdir -p "${TEST_CLEAN}/my-secrets"
   mkdir -p "${TEST_CLEAN}/secrets/nested"
 
-  # Copy clean scripts to test bin
-  cp "${CLI_SCRIPTS_DIR}/kaptain-clean" "${TEST_BIN}/"
-  cp "${ENC_SCRIPTS_DIR}/kaptain-clean-secrets" "${TEST_BIN}/"
+  # Copy all scripts to test bin
+  cp "${CLI_SCRIPTS_DIR}"/kaptain-* "${TEST_BIN}/"
+  cp "${ENC_SCRIPTS_DIR}"/kaptain-* "${TEST_BIN}/"
 }
 
 # Helper to create simulated encryption workflow files
