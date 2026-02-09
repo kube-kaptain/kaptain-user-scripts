@@ -9,9 +9,16 @@ ENC_SCRIPTS_DIR="src/scripts/encryption"
 OUTPUT_SUB_PATH="${OUTPUT_SUB_PATH:-target}"
 
 setup() {
-  # Create test directory structure
+  # Relative paths for --dir arguments (script rejects absolute paths)
   TEST_BIN="${OUTPUT_SUB_PATH}/test/bin"
   TEST_CLEAN="${OUTPUT_SUB_PATH}/test/clean"
+
+  # Absolute paths for --all tests that cd to different directories
+  TEST_BIN_ABS="$(pwd)/${TEST_BIN}"
+  TEST_CLEAN_ABS="$(pwd)/${TEST_CLEAN}"
+
+  # Clean up from previous test runs to prevent pollution
+  rm -rf "${TEST_CLEAN}"
 
   mkdir -p "${TEST_BIN}"
   mkdir -p "${TEST_CLEAN}/secrets"
@@ -211,4 +218,119 @@ create_workflow_files() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"3 .raw file(s) and 2 .txt file(s)"* ]]
   [[ "$output" == *"Deleted 5 file(s)"* ]]
+}
+
+# =============================================================================
+# clean-secrets --all tests
+# =============================================================================
+
+@test "clean-secrets: --all shown in help" {
+  run "${TEST_BIN}/kaptain-clean-secrets" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--all"* ]]
+  [[ "$output" == *"branchout"* ]]
+}
+
+@test "clean-secrets: --all fails when not under ~/projects/" {
+  # Run from /tmp which is definitely not under ~/projects/
+  run bash -c "cd /tmp && '${TEST_BIN_ABS}/kaptain-clean-secrets' --all"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Not under ~/projects/"* ]]
+}
+
+@test "clean-secrets: --all fails when branchout files not found" {
+  # Create a fake projects structure without branchout files
+  local fake_home="${TEST_CLEAN_ABS}/fake-home"
+  mkdir -p "${fake_home}/projects/testproj/group/group-project"
+
+  HOME="${fake_home}" run bash -c "cd '${fake_home}/projects/testproj/group/group-project' && '${TEST_BIN_ABS}/kaptain-clean-secrets' --all"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Branchout root not found"* ]]
+}
+
+@test "clean-secrets: --all finds branchout root and reports no projects" {
+  # Create a fake branchout structure with no secrets dirs
+  local fake_home="${TEST_CLEAN_ABS}/fake-home-empty"
+  mkdir -p "${fake_home}/projects/testproj/group/group-project/src"
+  touch "${fake_home}/projects/testproj/Branchoutfile"
+  touch "${fake_home}/projects/testproj/Branchoutprojects"
+
+  HOME="${fake_home}" run bash -c "cd '${fake_home}/projects/testproj/group/group-project' && '${TEST_BIN_ABS}/kaptain-clean-secrets' --all"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Found branchout root:"* ]]
+  [[ "$output" == *"No projects found with src/secrets"* ]]
+}
+
+@test "clean-secrets: --all cleans multiple projects" {
+  # Create a fake branchout structure with multiple projects
+  local fake_home="${TEST_CLEAN_ABS}/fake-home-multi"
+  local branchout_root="${fake_home}/projects/testproj"
+
+  mkdir -p "${branchout_root}/group/group-alpha/src/secrets"
+  mkdir -p "${branchout_root}/group/group-beta/src/secrets"
+  touch "${branchout_root}/Branchoutfile"
+  touch "${branchout_root}/Branchoutprojects"
+
+  # Add files to clean in both projects
+  touch "${branchout_root}/group/group-alpha/src/secrets/secret1.raw"
+  touch "${branchout_root}/group/group-alpha/src/secrets/secret1.txt"
+  touch "${branchout_root}/group/group-alpha/src/secrets/secret1.age"
+  touch "${branchout_root}/group/group-beta/src/secrets/secret2.raw"
+  touch "${branchout_root}/group/group-beta/src/secrets/secret2.age"
+
+  HOME="${fake_home}" run bash -c "cd '${branchout_root}/group/group-alpha' && '${TEST_BIN_ABS}/kaptain-clean-secrets' --all"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Found branchout root:"* ]]
+  [[ "$output" == *"Found 2 project(s) with src/secrets"* ]]
+  [[ "$output" == *"group/group-alpha"* ]]
+  [[ "$output" == *"group/group-beta"* ]]
+  [[ "$output" == *"Cleaning src/secrets in group/group-alpha"* ]]
+  [[ "$output" == *"Cleaning src/secrets in group/group-beta"* ]]
+  [[ "$output" == *"Done. Cleaned 2 project(s)."* ]]
+
+  # Verify files were cleaned
+  [ ! -f "${branchout_root}/group/group-alpha/src/secrets/secret1.raw" ]
+  [ ! -f "${branchout_root}/group/group-alpha/src/secrets/secret1.txt" ]
+  [ ! -f "${branchout_root}/group/group-beta/src/secrets/secret2.raw" ]
+
+  # Encrypted files should remain
+  [ -f "${branchout_root}/group/group-alpha/src/secrets/secret1.age" ]
+  [ -f "${branchout_root}/group/group-beta/src/secrets/secret2.age" ]
+}
+
+@test "clean-secrets: --all with --dry-run does not delete" {
+  local fake_home="${TEST_CLEAN_ABS}/fake-home-dry"
+  local branchout_root="${fake_home}/projects/testproj"
+
+  mkdir -p "${branchout_root}/group/group-proj/src/secrets"
+  touch "${branchout_root}/Branchoutfile"
+  touch "${branchout_root}/Branchoutprojects"
+  touch "${branchout_root}/group/group-proj/src/secrets/secret.raw"
+  touch "${branchout_root}/group/group-proj/src/secrets/secret.txt"
+
+  HOME="${fake_home}" run bash -c "cd '${branchout_root}/group/group-proj' && '${TEST_BIN_ABS}/kaptain-clean-secrets' --all --dry-run"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Dry run"* ]]
+  [[ "$output" == *"Would clean 1 project(s)"* ]]
+
+  # Files should still exist
+  [ -f "${branchout_root}/group/group-proj/src/secrets/secret.raw" ]
+  [ -f "${branchout_root}/group/group-proj/src/secrets/secret.txt" ]
+}
+
+@test "clean-secrets: --all with --dir uses custom secrets path" {
+  local fake_home="${TEST_CLEAN_ABS}/fake-home-custom"
+  local branchout_root="${fake_home}/projects/testproj"
+
+  mkdir -p "${branchout_root}/group/group-proj/config/secrets"
+  touch "${branchout_root}/Branchoutfile"
+  touch "${branchout_root}/Branchoutprojects"
+  touch "${branchout_root}/group/group-proj/config/secrets/secret.raw"
+
+  HOME="${fake_home}" run bash -c "cd '${branchout_root}/group/group-proj' && '${TEST_BIN_ABS}/kaptain-clean-secrets' --all --dir config/secrets"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Found 1 project(s) with config/secrets"* ]]
+  [[ "$output" == *"Cleaning config/secrets in group/group-proj"* ]]
+
+  [ ! -f "${branchout_root}/group/group-proj/config/secrets/secret.raw" ]
 }
