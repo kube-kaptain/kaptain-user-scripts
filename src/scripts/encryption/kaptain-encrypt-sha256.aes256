@@ -77,11 +77,14 @@ if [[ -n "${existing_file}" ]]; then
 fi
 
 # Encrypt each file
+echo ""
 for raw_file in "${raw_files[@]}"; do
   out_file="${raw_file%.raw}.${SUFFIX}"
-  echo "Encrypting ${raw_file} -> ${out_file}"
+  dir=$(dirname "${raw_file}")
+  echo "Encrypting ${dir}/{$(basename "${raw_file}") => $(basename "${out_file}")}"
   openssl enc -md sha256 -pbkdf2 -aes-256-cbc -base64 \
     -in "${raw_file}" -out "${out_file}" -k "${passphrase}"
 done
+echo ""
 
 echo "Done. Encrypted ${#raw_files[@]} file(s)"
