@@ -84,11 +84,12 @@ echo ""
 for age_file in "${age_files[@]}"; do
   txt_file="${age_file%.age}.txt"
   dir=$(dirname "${age_file}")
+  echo -n "Decrypting ${dir}/{$(basename "${age_file}") => $(basename "${txt_file}")}"
   if age -d -i "${identity_file}" -o "${txt_file}" "${age_file}" 2>/dev/null; then
-    echo "Decrypting ${dir}/{$(basename "${age_file}") => $(basename "${txt_file}")}"
+    echo ""
     success_count=$((success_count + 1))
   else
-    echo "FAILED: ${age_file}"
+    echo " FAILED"
     fail_count=$((fail_count + 1))
     failed_files+=("${age_file}")
   fi

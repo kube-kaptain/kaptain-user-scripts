@@ -73,12 +73,13 @@ echo ""
 for enc_file in "${enc_files[@]}"; do
   txt_file="${enc_file%.${SUFFIX}}.txt"
   dir=$(dirname "${enc_file}")
+  echo -n "Decrypting ${dir}/{$(basename "${enc_file}") => $(basename "${txt_file}")}"
   if openssl enc -md sha256 -pbkdf2 -aes-256-cbc -d -base64 \
     -in "${enc_file}" -out "${txt_file}" -k "${passphrase}" 2>/dev/null; then
-    echo "Decrypting ${dir}/{$(basename "${enc_file}") => $(basename "${txt_file}")}"
+    echo ""
     success_count=$((success_count + 1))
   else
-    echo "FAILED: ${enc_file}"
+    echo " FAILED"
     fail_count=$((fail_count + 1))
     failed_files+=("${enc_file}")
   fi
