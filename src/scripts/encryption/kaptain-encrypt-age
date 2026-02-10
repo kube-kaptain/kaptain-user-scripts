@@ -95,10 +95,13 @@ if [[ -n "${existing_file}" ]]; then
 fi
 
 # Encrypt each file
+echo ""
 for raw_file in "${raw_files[@]}"; do
   age_file="${raw_file%.raw}.age"
-  echo "Encrypting ${raw_file} -> ${age_file}"
+  dir=$(dirname "${raw_file}")
+  echo "Encrypting ${dir}/{$(basename "${raw_file}") => $(basename "${age_file}")}"
   age -e -r "${recipient}" -o "${age_file}" "${raw_file}"
 done
+echo ""
 
 echo "Done. Encrypted ${#raw_files[@]} file(s)"

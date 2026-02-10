@@ -5,6 +5,19 @@
 # BATS tests for encryption scripts
 
 SCRIPTS_DIR="src/scripts/encryption"
+OUTPUT_SUB_PATH="${OUTPUT_SUB_PATH:-target}"
+
+# Setup: create a clean test directory for each test
+setup() {
+  TEST_DIR="${OUTPUT_SUB_PATH}/test/encryption"
+  rm -rf "${TEST_DIR}"
+  mkdir -p "${TEST_DIR}"
+}
+
+# Teardown: clean up test directory
+teardown() {
+  rm -rf "${OUTPUT_SUB_PATH}/test/encryption"
+}
 
 # kaptain-encrypt router tests
 @test "kaptain-encrypt: --help shows usage" {
@@ -221,15 +234,12 @@ SCRIPTS_DIR="src/scripts/encryption"
 
 @test "kaptain-encryption-check-ignores: absolute path does not hang" {
   # This test verifies the fix for infinite loop with absolute paths
-  # Create a temp directory structure with absolute path
-  TEST_REPO=$(mktemp -d)
-
-  # Set up fake git repo
-  mkdir -p "${TEST_REPO}/.git"
-  mkdir -p "${TEST_REPO}/secrets"
+  # Set up fake git repo in TEST_DIR
+  mkdir -p "${TEST_DIR}/.git"
+  mkdir -p "${TEST_DIR}/secrets"
 
   # Add proper gitignore patterns
-  cat > "${TEST_REPO}/.gitignore" << 'EOF'
+  cat > "${TEST_DIR}/.gitignore" << 'EOF'
 **/*secrets/*.raw
 **/*secrets/*.txt
 EOF
@@ -237,10 +247,7 @@ EOF
   # Run from the fake repo root with absolute path - should complete without hanging
   # Use timeout to catch infinite loop (5 seconds is plenty)
   local exit_code=0
-  timeout 5 bash -c "cd '${TEST_REPO}' && '${PWD}/${SCRIPTS_DIR}/kaptain-encryption-check-ignores' --dir '${TEST_REPO}/secrets'" || exit_code=$?
-
-  # Cleanup
-  rm -rf "${TEST_REPO}"
+  timeout 5 bash -c "cd '${TEST_DIR}' && '${PWD}/${SCRIPTS_DIR}/kaptain-encryption-check-ignores' --dir '${TEST_DIR}/secrets'" || exit_code=$?
 
   # Timeout exits with 124 - explicitly fail with message if that happens
   if [ "${exit_code}" -eq 124 ]; then

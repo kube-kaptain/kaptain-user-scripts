@@ -11,14 +11,14 @@ TEST_PASSPHRASE="test-passphrase-for-ci-only"
 
 # Setup: create a clean test directory for each test
 setup() {
-  TEST_DIR="${OUTPUT_SUB_PATH}/test/encryption/secrets"
-  rm -rf "${OUTPUT_SUB_PATH}/test/encryption"
+  TEST_DIR="${OUTPUT_SUB_PATH}/test/encryption-functional/secrets"
+  rm -rf "${OUTPUT_SUB_PATH}/test/encryption-functional"
   mkdir -p "${TEST_DIR}"
   cp -r "${FIXTURES_DIR}"/* "${TEST_DIR}"/
 
   # Add gitignore patterns required by kaptain-encryption-check-ignores
   # This ensures router tests pass in CI where global gitignore isn't configured
-  cat > "${OUTPUT_SUB_PATH}/test/encryption/.gitignore" << 'EOF'
+  cat > "${OUTPUT_SUB_PATH}/test/encryption-functional/.gitignore" << 'EOF'
 **/*secrets/*.raw
 **/*secrets/*.txt
 EOF
@@ -26,7 +26,7 @@ EOF
 
 # Teardown: clean up test directory
 teardown() {
-  rm -rf "${OUTPUT_SUB_PATH}/test/encryption"
+  rm -rf "${OUTPUT_SUB_PATH}/test/encryption-functional"
 }
 
 # Helper to count files matching a pattern
@@ -371,7 +371,7 @@ count_files() {
 # =============================================================================
 
 @test "encrypt: empty directory (no raw files) exits cleanly" {
-  EMPTY_DIR="${OUTPUT_SUB_PATH}/test/encryption/empty-secrets"
+  EMPTY_DIR="${OUTPUT_SUB_PATH}/test/encryption-functional/empty-secrets"
   mkdir -p "${EMPTY_DIR}"
 
   run "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256" --dir "${EMPTY_DIR}"
@@ -381,7 +381,7 @@ count_files() {
 }
 
 @test "decrypt: empty directory (no encrypted files) exits cleanly" {
-  EMPTY_DIR="${OUTPUT_SUB_PATH}/test/encryption/empty-secrets"
+  EMPTY_DIR="${OUTPUT_SUB_PATH}/test/encryption-functional/empty-secrets"
   mkdir -p "${EMPTY_DIR}"
 
   run "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256" --dir "${EMPTY_DIR}"
