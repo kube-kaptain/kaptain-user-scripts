@@ -35,9 +35,15 @@ they'll use KaptainPM.yaml to read the correct directory from.
 
 Right now you have two choices:
 
-1. Clone and add `src/scripts` to your path
-2. Brew install via [homebrew-kaptain-user-scripts](https://github.com/kube-kaptain/homebrew-kaptain-user-scripts)
+1. Clone and add `src/scripts` to your path OR
+2. Brew install via [homebrew-kaptain](https://github.com/kube-kaptain/homebrew-kaptain)
 
+Brew instructions are repeated below from [the above repo docs](https://github.com/kube-kaptain/homebrew-kaptain?tab=readme-ov-file#installation):
+
+```bash
+brew tap kube-kaptain/kaptain
+brew install kaptain
+```
 
 ## Future Packaging
 
