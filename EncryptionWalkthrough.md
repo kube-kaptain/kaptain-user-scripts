@@ -68,7 +68,7 @@ Raw files:
     src/secrets/database/hostname.raw
     src/secrets/database/port.raw
 
-Summary: 3 pending encryption
+Summary: 3 pending encryption, 0 encrypted
 ```
 
 All three files show as pending encryption - no encrypted counterparts exist yet.

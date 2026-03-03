@@ -239,7 +239,7 @@ create_file_with_time() {
 @test "list-secrets: empty directory shows no files" {
   run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"No raw or decrypted files found"* ]]
+  [[ "$output" == *"No raw, decrypted, or encrypted files found"* ]]
 }
 
 @test "list-secrets: raw without enc shows pending encryption" {
@@ -250,6 +250,7 @@ create_file_with_time() {
   [[ "$output" == *"Pending encryption:"* ]]
   [[ "$output" == *"new-secret.raw"* ]]
   [[ "$output" == *"1 pending encryption"* ]]
+  [[ "$output" == *"0 encrypted"* ]]
 }
 
 @test "list-secrets: raw newer than enc shows pending encryption" {
@@ -311,13 +312,14 @@ create_file_with_time() {
   [[ "$output" == *"1 stale txt"* ]]
 }
 
-@test "list-secrets: txt without enc shows unknown" {
+@test "list-secrets: txt without enc shows orphaned txt" {
   touch "${TEST_LIST}/secrets/orphan.txt"
 
   run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Unknown files found:"* ]]
+  [[ "$output" == *"Orphaned txt files"* ]]
   [[ "$output" == *"orphan.txt"* ]]
+  [[ "$output" == *"1 orphaned txt"* ]]
 }
 
 # =============================================================================
@@ -351,6 +353,29 @@ create_file_with_time() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"2 age"* ]]
   [[ "$output" == *"1 sha256.aes256"* ]]
+}
+
+@test "list-secrets: single enc type shows no warning" {
+  touch "${TEST_LIST}/secrets/a.age"
+  touch "${TEST_LIST}/secrets/b.age"
+
+  run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"2 age"* ]]
+  [[ "$output" != *"WARNING"* ]]
+}
+
+@test "list-secrets: mixed enc types shows warning" {
+  touch "${TEST_LIST}/secrets/a.age"
+  touch "${TEST_LIST}/secrets/b.age"
+  touch "${TEST_LIST}/secrets/c.sha256.aes256"
+
+  run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING: Mixed encryption types found"* ]]
+  [[ "$output" == *"2 age"* ]]
+  [[ "$output" == *"1 sha256.aes256"* ]]
+  [[ "$output" == *"kaptain encrypt --type"* ]]
 }
 
 @test "list-secrets: mixed scenario summary" {
