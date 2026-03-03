@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# List config files and their values.
+# Run from repo root.
+#
+# Usage: kaptain-list-config [--dir DIR]
+set -euo pipefail
+
+CONFIG_DIR="${CONFIG_DIR:-src/config}"
+
+usage() {
+  echo "Usage: kaptain list config [--dir DIR]"
+  echo ""
+  echo "List config files and their values."
+  echo ""
+  echo "Options:"
+  echo "  --dir DIR     Config directory (default: src/config)"
+  echo "  -h, --help    Show this help"
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --dir requires a value" >&2
+        usage
+        exit 1
+      fi
+      CONFIG_DIR="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+# Reject absolute paths for --dir
+if [[ "${CONFIG_DIR}" == /* ]]; then
+  echo "ERROR: --dir must be a relative path, i.e. a sub path of this repo" >&2
+  exit 1
+fi
+
+if [[ ! -d "${CONFIG_DIR}" ]]; then
+  echo "ERROR: Config directory not found: ${CONFIG_DIR}" >&2
+  exit 1
+fi
+
+# Find all files and list as relative/path: contents
+while IFS= read -r -d '' file; do
+  rel="${file#${CONFIG_DIR}/}"
+  contents=$(cat "${file}")
+  echo "${rel}: ${contents}"
+done < <(find "${CONFIG_DIR}" -type f -print0 | sort -z)
