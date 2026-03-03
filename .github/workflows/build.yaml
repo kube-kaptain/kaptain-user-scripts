@@ -18,4 +18,4 @@ jobs:
       qc-block-conventional-commits: true
       hook-pre-tagging-tests-script-sub-path: bin/run-tests.bash
       hook-pre-docker-prepare-script-sub-path: bin/package-for-release.bash
-      github-release-verbatim-files: target/user-scripts/all/kaptain-user-scripts.zip target/user-scripts/cli/kaptain-user-scripts-cli.zip target/user-scripts/encryption/kaptain-user-scripts-encryption.zip target/user-scripts/util/kaptain-user-scripts-util.zip target/user-scripts/42/kaptain-user-scripts-42.zip
+      github-release-verbatim-files: target/user-scripts/all/kaptain-user-scripts.zip target/user-scripts/cli/kaptain-user-scripts-cli.zip target/user-scripts/encryption/kaptain-user-scripts-encryption.zip target/user-scripts/util/kaptain-user-scripts-util.zip target/user-scripts/42/kaptain-user-scripts-42.zip src/docker/kaptain-completion.bash
