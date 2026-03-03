@@ -74,6 +74,128 @@ create_file_with_time() {
   [[ "$output" == *"--dir"* ]]
 }
 
+@test "list router: config target delegates" {
+  run "${TEST_BIN}/kaptain-list" config --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--dir"* ]]
+}
+
+# =============================================================================
+# list-config argument handling
+# =============================================================================
+
+@test "list-config: --help shows usage" {
+  run "${TEST_BIN}/kaptain-list-config" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"* ]]
+  [[ "$output" == *"--dir"* ]]
+}
+
+@test "list-config: missing --dir value fails" {
+  run "${TEST_BIN}/kaptain-list-config" --dir
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: --dir requires a value"* ]]
+}
+
+@test "list-config: nonexistent directory fails" {
+  run "${TEST_BIN}/kaptain-list-config" --dir nonexistent/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not found"* ]]
+}
+
+@test "list-config: absolute path rejected" {
+  run "${TEST_BIN}/kaptain-list-config" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path"* ]]
+}
+
+@test "list-config: unknown option fails" {
+  run "${TEST_BIN}/kaptain-list-config" --bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Unknown option"* ]]
+}
+
+# =============================================================================
+# list-config functional tests
+# =============================================================================
+
+@test "list-config: empty directory shows no files" {
+  mkdir -p "${TEST_LIST}/config"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Listing config in"* ]]
+  [[ "$output" == *"No config files found"* ]]
+}
+
+@test "list-config: single file shows name and value" {
+  mkdir -p "${TEST_LIST}/config"
+  echo "localhost" > "${TEST_LIST}/config/hostname"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Listing config in"* ]]
+  [[ "$output" == *"One newline (consider stripping):"* ]]
+  [[ "$output" == *"hostname:"*"localhost"* ]]
+  [[ "$output" == *"1 one-newline"* ]]
+}
+
+@test "list-config: nested file shows relative path" {
+  mkdir -p "${TEST_LIST}/config/database"
+  echo "5432" > "${TEST_LIST}/config/database/port"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"database/port:"*"5432"* ]]
+}
+
+@test "list-config: multiple files listed" {
+  mkdir -p "${TEST_LIST}/config/database"
+  echo "localhost" > "${TEST_LIST}/config/hostname"
+  echo "5432" > "${TEST_LIST}/config/database/port"
+  echo "mydb" > "${TEST_LIST}/config/database/name"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"hostname:"*"localhost"* ]]
+  [[ "$output" == *"database/port:"*"5432"* ]]
+  [[ "$output" == *"database/name:"*"mydb"* ]]
+  [[ "$output" == *"3 one-newline"* ]]
+}
+
+@test "list-config: newline categories" {
+  mkdir -p "${TEST_LIST}/config"
+  printf "no-trailing-newline" > "${TEST_LIST}/config/no-nl"
+  echo "one-newline-value" > "${TEST_LIST}/config/one-nl"
+  printf "line1\nline2\n" > "${TEST_LIST}/config/two-nl"
+  printf "line1\nline2\nline3\nline4\n" > "${TEST_LIST}/config/multi"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No newline (usually correct):"* ]]
+  [[ "$output" == *"no-nl:"*"no-trailing-newline"* ]]
+  [[ "$output" == *"One newline (consider stripping):"* ]]
+  [[ "$output" == *"one-nl:"*"one-newline-value"* ]]
+  [[ "$output" == *"Multiline (cat <file> to inspect):"* ]]
+  [[ "$output" == *"two-nl:"*"2 lines"* ]]
+  [[ "$output" == *"multi:"*"4 lines"* ]]
+  [[ "$output" == *"1 no-newline"* ]]
+  [[ "$output" == *"1 one-newline"* ]]
+  [[ "$output" == *"2 multiline"* ]]
+  # Verify comma-space separation in summary
+  [[ "$output" == *"1 no-newline, 1 one-newline, 2 multiline"* ]]
+}
+
+@test "list-config: works with custom dir" {
+  mkdir -p "${TEST_LIST}/my-config"
+  echo "custom-value" > "${TEST_LIST}/my-config/key"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/my-config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Listing config in ${TEST_LIST}/my-config"* ]]
+  [[ "$output" == *"key:"*"custom-value"* ]]
+}
+
 # =============================================================================
 # list-secrets argument handling
 # =============================================================================
@@ -294,6 +416,10 @@ create_file_with_time() {
   [[ "$output" == *"Found branchout root:"* ]]
   [[ "$output" == *"No projects found with src/secrets"* ]]
 }
+
+# =============================================================================
+# list-secrets --all tests
+# =============================================================================
 
 @test "list-secrets: --all lists multiple projects" {
   local fake_home="${TEST_LIST_ABS}/fake-home-multi"
