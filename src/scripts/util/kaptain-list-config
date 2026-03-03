@@ -5,19 +5,186 @@
 # List config files and their values.
 # Run from repo root.
 #
-# Usage: kaptain-list-config [--dir DIR]
+# Usage: kaptain-list-config [--dir DIR] [--all]
 set -euo pipefail
 
 CONFIG_DIR="${CONFIG_DIR:-src/config}"
+ALL_PROJECTS=false
 
 usage() {
-  echo "Usage: kaptain list config [--dir DIR]"
+  echo "Usage: kaptain list config [--dir DIR] [--all]"
   echo ""
   echo "List config files and their values."
   echo ""
   echo "Options:"
   echo "  --dir DIR     Config directory (default: src/config)"
+  echo "  --all         List all projects in branchout tree"
   echo "  -h, --help    Show this help"
+}
+
+# Find branchout root by walking up from cwd
+# Sets BRANCHOUT_ROOT on success, exits on failure
+find_branchout_root() {
+  local dir="${PWD}"
+  local home_projects="${HOME}/projects"
+
+  # Check we're under ~/projects/*/
+  if [[ "${dir}" != "${home_projects}/"* ]]; then
+    echo "ERROR: Not under ~/projects/, cannot find branchout tree" >&2
+    exit 1
+  fi
+
+  while [[ "${dir}" != "${home_projects}" && "${dir}" != "/" ]]; do
+    if [[ -f "${dir}/Branchoutfile" && -f "${dir}/Branchoutprojects" ]]; then
+      BRANCHOUT_ROOT="${dir}"
+      return 0
+    fi
+    dir=$(dirname "${dir}")
+  done
+
+  echo "ERROR: Branchout root not found" >&2
+  echo "ERROR: Cannot perform --all config listing without a valid structure" >&2
+  exit 1
+}
+
+# List config from a single directory
+# Arguments: $1 = config directory path
+list_config_dir() {
+  local config_dir="$1"
+
+  # Collect all files
+  local files=()
+  local rels=()
+  while IFS= read -r -d '' file; do
+    files+=("${file}")
+    rels+=("${file#${config_dir}/}")
+  done < <(find "${config_dir}" -type f -print0 | sort -z)
+
+  if [[ ${#files[@]} -eq 0 ]]; then
+    echo ""
+    echo "No config files found"
+    return 0
+  fi
+
+  # Categorise files by newline count
+  local no_newline_rels=()
+  local no_newline_vals=()
+  local one_newline_rels=()
+  local one_newline_vals=()
+  local multiline_rels=()
+  local multiline_counts=()
+
+  for i in "${!files[@]}"; do
+    local rel="${rels[$i]}"
+    local newline_count
+    newline_count=$(tr -cd '\n' < "${files[$i]}" | wc -c | tr -d ' ')
+
+    if [[ ${newline_count} -eq 0 ]]; then
+      no_newline_rels+=("${rel}")
+      no_newline_vals+=("$(cat "${files[$i]}")")
+    elif [[ ${newline_count} -eq 1 ]]; then
+      one_newline_rels+=("${rel}")
+      one_newline_vals+=("$(cat "${files[$i]}")")
+    else
+      multiline_rels+=("${rel}")
+      multiline_counts+=("${newline_count}")
+    fi
+  done
+
+  # Find longest relative path across all categories for padding
+  local max_len=0
+  for rel in "${no_newline_rels[@]+"${no_newline_rels[@]}"}" "${one_newline_rels[@]+"${one_newline_rels[@]}"}" "${multiline_rels[@]+"${multiline_rels[@]}"}"; do
+    if [[ ${#rel} -gt ${max_len} ]]; then
+      max_len=${#rel}
+    fi
+  done
+  # +1 for colon, +2 for gap after longest key
+  local pad=$((max_len + 3))
+
+  if [[ ${#no_newline_rels[@]} -gt 0 ]]; then
+    echo ""
+    echo "No newline (usually correct):"
+    for i in "${!no_newline_rels[@]}"; do
+      printf "  %-${pad}s%s\n" "${no_newline_rels[$i]}:" "${no_newline_vals[$i]}"
+    done
+  fi
+
+  if [[ ${#one_newline_rels[@]} -gt 0 ]]; then
+    echo ""
+    echo "One newline (consider stripping):"
+    for i in "${!one_newline_rels[@]}"; do
+      printf "  %-${pad}s%s\n" "${one_newline_rels[$i]}:" "${one_newline_vals[$i]}"
+    done
+  fi
+
+  if [[ ${#multiline_rels[@]} -gt 0 ]]; then
+    echo ""
+    echo "Multiline (cat <file> to inspect):"
+    for i in "${!multiline_rels[@]}"; do
+      printf "  %-${pad}s%s lines\n" "${multiline_rels[$i]}:" "${multiline_counts[$i]}"
+    done
+  fi
+
+  echo ""
+
+  # Build summary
+  local summary_parts=()
+  [[ ${#no_newline_rels[@]} -gt 0 ]] && summary_parts+=("${#no_newline_rels[@]} no-newline")
+  [[ ${#one_newline_rels[@]} -gt 0 ]] && summary_parts+=("${#one_newline_rels[@]} one-newline")
+  [[ ${#multiline_rels[@]} -gt 0 ]] && summary_parts+=("${#multiline_rels[@]} multiline")
+
+  local summary=""
+  for part in "${summary_parts[@]}"; do
+    if [[ -n "${summary}" ]]; then
+      summary+=", "
+    fi
+    summary+="${part}"
+  done
+  echo "Summary: ${summary}"
+}
+
+# List all projects in branchout tree
+list_all_projects() {
+  find_branchout_root
+  echo "Found branchout root: ${BRANCHOUT_ROOT}"
+
+  # Find all project dirs with config
+  local project_dirs=()
+  while IFS= read -r -d '' dir; do
+    project_dirs+=("$dir")
+  done < <(find "${BRANCHOUT_ROOT}" -mindepth 4 -maxdepth 4 -type d -path "*/${CONFIG_DIR}" -print0 2>/dev/null | sort -z)
+
+  if [[ ${#project_dirs[@]} -eq 0 ]]; then
+    echo ""
+    echo "No projects found with ${CONFIG_DIR}"
+    exit 0
+  fi
+
+  # Extract and display project names
+  echo ""
+  echo "Found ${#project_dirs[@]} project(s) with ${CONFIG_DIR}:"
+  echo ""
+  local projects=()
+  for dir in "${project_dirs[@]}"; do
+    local rel_path="${dir#${BRANCHOUT_ROOT}/}"
+    local project="${rel_path%/${CONFIG_DIR}}"
+    projects+=("${project}")
+    echo "  ${project}"
+  done
+
+  # List each project
+  local listed=0
+  for i in "${!project_dirs[@]}"; do
+    local config_path="${project_dirs[$i]}"
+    local project="${projects[$i]}"
+    echo ""
+    echo "Listing ${CONFIG_DIR} in ${project}:"
+    list_config_dir "${config_path}"
+    listed=$((listed + 1))
+  done
+
+  echo ""
+  echo "Done. Listed ${listed} project(s)."
 }
 
 # Parse arguments
@@ -36,6 +203,10 @@ while [[ $# -gt 0 ]]; do
       CONFIG_DIR="$2"
       shift 2
       ;;
+    --all)
+      ALL_PROJECTS=true
+      shift
+      ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
       usage
@@ -50,99 +221,13 @@ if [[ "${CONFIG_DIR}" == /* ]]; then
   exit 1
 fi
 
-if [[ ! -d "${CONFIG_DIR}" ]]; then
-  echo "ERROR: Config directory not found: ${CONFIG_DIR}" >&2
-  exit 1
-fi
-
-# Collect all files
-files=()
-rels=()
-while IFS= read -r -d '' file; do
-  files+=("${file}")
-  rels+=("${file#${CONFIG_DIR}/}")
-done < <(find "${CONFIG_DIR}" -type f -print0 | sort -z)
-
-if [[ ${#files[@]} -eq 0 ]]; then
+if [[ "${ALL_PROJECTS}" == "true" ]]; then
+  list_all_projects
+else
+  if [[ ! -d "${CONFIG_DIR}" ]]; then
+    echo "ERROR: Config directory not found: ${CONFIG_DIR}" >&2
+    exit 1
+  fi
   echo "Listing config in ${CONFIG_DIR}:"
-  echo ""
-  echo "No config files found"
-  exit 0
+  list_config_dir "${CONFIG_DIR}"
 fi
-
-# Categorise files by newline count
-no_newline_rels=()
-no_newline_vals=()
-one_newline_rels=()
-one_newline_vals=()
-multiline_rels=()
-multiline_counts=()
-
-for i in "${!files[@]}"; do
-  rel="${rels[$i]}"
-  newline_count=$(tr -cd '\n' < "${files[$i]}" | wc -c | tr -d ' ')
-
-  if [[ ${newline_count} -eq 0 ]]; then
-    no_newline_rels+=("${rel}")
-    no_newline_vals+=("$(cat "${files[$i]}")")
-  elif [[ ${newline_count} -eq 1 ]]; then
-    one_newline_rels+=("${rel}")
-    one_newline_vals+=("$(cat "${files[$i]}")")
-  else
-    multiline_rels+=("${rel}")
-    multiline_counts+=("${newline_count}")
-  fi
-done
-
-# Find longest relative path across all categories for padding
-max_len=0
-for rel in "${no_newline_rels[@]+"${no_newline_rels[@]}"}" "${one_newline_rels[@]+"${one_newline_rels[@]}"}" "${multiline_rels[@]+"${multiline_rels[@]}"}"; do
-  if [[ ${#rel} -gt ${max_len} ]]; then
-    max_len=${#rel}
-  fi
-done
-# +1 for colon, +2 for gap after longest key
-pad=$((max_len + 3))
-
-echo "Listing config in ${CONFIG_DIR}:"
-
-if [[ ${#no_newline_rels[@]} -gt 0 ]]; then
-  echo ""
-  echo "No newline (usually correct):"
-  for i in "${!no_newline_rels[@]}"; do
-    printf "  %-${pad}s%s\n" "${no_newline_rels[$i]}:" "${no_newline_vals[$i]}"
-  done
-fi
-
-if [[ ${#one_newline_rels[@]} -gt 0 ]]; then
-  echo ""
-  echo "One newline (consider stripping):"
-  for i in "${!one_newline_rels[@]}"; do
-    printf "  %-${pad}s%s\n" "${one_newline_rels[$i]}:" "${one_newline_vals[$i]}"
-  done
-fi
-
-if [[ ${#multiline_rels[@]} -gt 0 ]]; then
-  echo ""
-  echo "Multiline (cat <file> to inspect):"
-  for i in "${!multiline_rels[@]}"; do
-    printf "  %-${pad}s%s lines\n" "${multiline_rels[$i]}:" "${multiline_counts[$i]}"
-  done
-fi
-
-echo ""
-
-# Build summary
-summary_parts=()
-[[ ${#no_newline_rels[@]} -gt 0 ]] && summary_parts+=("${#no_newline_rels[@]} no-newline")
-[[ ${#one_newline_rels[@]} -gt 0 ]] && summary_parts+=("${#one_newline_rels[@]} one-newline")
-[[ ${#multiline_rels[@]} -gt 0 ]] && summary_parts+=("${#multiline_rels[@]} multiline")
-
-summary=""
-for part in "${summary_parts[@]}"; do
-  if [[ -n "${summary}" ]]; then
-    summary+=", "
-  fi
-  summary+="${part}"
-done
-echo "Summary: ${summary}"

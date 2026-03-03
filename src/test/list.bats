@@ -89,6 +89,7 @@ create_file_with_time() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage:"* ]]
   [[ "$output" == *"--dir"* ]]
+  [[ "$output" == *"--all"* ]]
 }
 
 @test "list-config: missing --dir value fails" {
@@ -197,6 +198,61 @@ create_file_with_time() {
 }
 
 # =============================================================================
+# list-config --all tests
+# =============================================================================
+
+@test "list-config: --all fails when not under ~/projects/" {
+  run bash -c "cd /tmp && '${TEST_BIN_ABS}/kaptain-list-config' --all"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Not under ~/projects/"* ]]
+}
+
+@test "list-config: --all fails when branchout files not found" {
+  local fake_home="${TEST_LIST_ABS}/fake-home-config"
+  mkdir -p "${fake_home}/projects/testproj/group/group-project"
+
+  HOME="${fake_home}" run bash -c "cd '${fake_home}/projects/testproj/group/group-project' && '${TEST_BIN_ABS}/kaptain-list-config' --all"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Branchout root not found"* ]]
+}
+
+@test "list-config: --all finds branchout root and reports no projects" {
+  local fake_home="${TEST_LIST_ABS}/fake-home-config-empty"
+  mkdir -p "${fake_home}/projects/testproj/group/group-project/src"
+  touch "${fake_home}/projects/testproj/Branchoutfile"
+  touch "${fake_home}/projects/testproj/Branchoutprojects"
+
+  HOME="${fake_home}" run bash -c "cd '${fake_home}/projects/testproj/group/group-project' && '${TEST_BIN_ABS}/kaptain-list-config' --all"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Found branchout root:"* ]]
+  [[ "$output" == *"No projects found with src/config"* ]]
+}
+
+@test "list-config: --all lists multiple projects" {
+  local fake_home="${TEST_LIST_ABS}/fake-home-config-multi"
+  local branchout_root="${fake_home}/projects/testproj"
+
+  mkdir -p "${branchout_root}/group/group-alpha/src/config"
+  mkdir -p "${branchout_root}/group/group-beta/src/config"
+  touch "${branchout_root}/Branchoutfile"
+  touch "${branchout_root}/Branchoutprojects"
+
+  # Add config files
+  echo "localhost" > "${branchout_root}/group/group-alpha/src/config/hostname"
+  printf "5432" > "${branchout_root}/group/group-beta/src/config/port"
+
+  HOME="${fake_home}" run bash -c "cd '${branchout_root}/group/group-alpha' && '${TEST_BIN_ABS}/kaptain-list-config' --all"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Found branchout root:"* ]]
+  [[ "$output" == *"Found 2 project(s) with src/config"* ]]
+  [[ "$output" == *"group/group-alpha"* ]]
+  [[ "$output" == *"group/group-beta"* ]]
+  [[ "$output" == *"Listing src/config in group/group-alpha"* ]]
+  [[ "$output" == *"Listing src/config in group/group-beta"* ]]
+  [[ "$output" == *"Done. Listed 2 project(s)."* ]]
+}
+
+# =============================================================================
 # list-secrets argument handling
 # =============================================================================
 
@@ -206,6 +262,7 @@ create_file_with_time() {
   [[ "$output" == *"Usage:"* ]]
   [[ "$output" == *"--dir"* ]]
   [[ "$output" == *"--all"* ]]
+  [[ "$output" == *"--verbose"* ]]
 }
 
 @test "list-secrets: missing --dir value fails" {
@@ -402,6 +459,43 @@ create_file_with_time() {
   [[ "$output" == *"1 exposed"* ]]
   [[ "$output" == *"1 unknown"* ]]
   [[ "$output" == *"2 age"* ]]
+}
+
+# =============================================================================
+# list-secrets --verbose tests
+# =============================================================================
+
+@test "list-secrets: verbose lists encrypted files" {
+  touch "${TEST_LIST}/secrets/a.age"
+  touch "${TEST_LIST}/secrets/b.age"
+  touch "${TEST_LIST}/secrets/nested/c.age"
+
+  run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets" --verbose
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Encrypted files:"* ]]
+  [[ "$output" == *"age:"* ]]
+  [[ "$output" == *"a.age"* ]]
+  [[ "$output" == *"b.age"* ]]
+  [[ "$output" == *"c.age"* ]]
+}
+
+@test "list-secrets: without verbose does not list encrypted files" {
+  touch "${TEST_LIST}/secrets/a.age"
+  touch "${TEST_LIST}/secrets/b.age"
+
+  run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Encrypted files:"* ]]
+  [[ "$output" == *"2 age"* ]]
+}
+
+@test "list-secrets: verbose with -v shorthand" {
+  touch "${TEST_LIST}/secrets/a.age"
+
+  run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets" -v
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Encrypted files:"* ]]
+  [[ "$output" == *"a.age"* ]]
 }
 
 # =============================================================================
