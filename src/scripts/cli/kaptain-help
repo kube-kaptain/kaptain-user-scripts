@@ -8,15 +8,86 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Command descriptions - add entries here as new commands are created
+# Commands without entries get listed with no description
+# Commands deliberately excluded from the map get no description (e.g., 42)
+describe_command() {
+  local cmd="$1"
+  case "${cmd}" in
+    help)       echo "Show this help message" ;;
+    list)       echo "List project files and status" ;;
+    clean)      echo "Clean up input/output temporary files" ;;
+    keygen)     echo "Generate encryption keys" ;;
+    encrypt)    echo "Encrypt secrets in a directory" ;;
+    decrypt)    echo "Decrypt secrets in a directory" ;;
+    *)          echo "" ;;
+  esac
+}
+
+# Check if a script is a sub-command of another script
+# e.g., kaptain-list-secrets is a sub-command of kaptain-list
+# Walks prefix segments: kaptain-a-b-c checks kaptain-a-b, kaptain-a
+is_subcommand() {
+  local name="$1"
+  local prefix="${name%-*}"
+  while [[ "${prefix}" != "kaptain" ]]; do
+    if [[ -x "${SCRIPT_DIR}/${prefix}" ]]; then
+      return 0
+    fi
+    prefix="${prefix%-*}"
+  done
+  return 1
+}
+
 cat <<'EOF'
 Kaptain CLI - User scripts for Kaptain Kubernetes build and deployment system.
 
 Usage: kaptain <command> [options]
 
 Commands:
-  encrypt    Encrypt secrets in a directory
-  decrypt    Decrypt secrets in a directory
-  help       Show this help message
+EOF
+
+# Collect top-level commands
+commands=()
+for cmd in "${SCRIPT_DIR}"/kaptain-*; do
+  if [[ -x "${cmd}" ]]; then
+    name=$(basename "${cmd}")
+    if ! is_subcommand "${name}"; then
+      commands+=("${name#kaptain-}")
+    fi
+  fi
+done
+
+# Find longest command name
+max_len=0
+for short in "${commands[@]}"; do
+  if [[ ${#short} -gt ${max_len} ]]; then
+    max_len=${#short}
+  fi
+done
+pad=$((max_len + 2))
+
+# Print with aligned descriptions
+for short in "${commands[@]}"; do
+  desc=$(describe_command "${short}")
+  if [[ -n "${desc}" ]]; then
+    printf "  %-${pad}s %s\n" "${short}" "${desc}"
+  else
+    echo "  ${short}"
+  fi
+done
+echo
+
+cat <<'EOF'
+Utility Commands:
+  kaptain list config [--dir DIR]
+    List config with key/token-name on the left and value to right
+
+  kaptain list secrets [--dir DIR]
+    List encrypted files and unencrypted raw input and extracted output files
+
+  kaptain clean secrets [--dir DIR]
+    Remove encryption-check-ignores) echo "Check gitignore covers secrets
 
 Encryption Commands:
   kaptain encrypt [--type TYPE] [--dir DIR]
@@ -30,32 +101,18 @@ Encryption Commands:
     --type    Encryption type (auto-detected from file extensions if omitted)
     --dir     Target directory (default: src/secrets)
 
-Direct script access: kaptain-<command>[-<encryptionType>]
+Run 'kaptain <command> --help' for command-specific options.
+
+Direct script access: kaptain-<command>[-<subcommand>]
 
 Use tab completion from `kaptain-` to see what's installed.
 
 EOF
 
-# List available subcommands dynamically
-echo "Available subcommands:"
-for cmd in "${SCRIPT_DIR}"/kaptain-*; do
-  if [[ -x "${cmd}" ]]; then
-    name=$(basename "${cmd}")
-    # Skip encryption scripts in subdirectory listing
-    if [[ "${name}" != kaptain-encrypt-* && "${name}" != kaptain-decrypt-* ]] || \
-       [[ "${name}" == "kaptain-encrypt" || "${name}" == "kaptain-decrypt" ]]; then
-      echo "  ${name#kaptain-}"
-    fi
-  fi
-done
-echo
-
-# List available scriptss dynamically
-echo "Available kaptain scripts:"
+echo "All available kaptain scripts:"
 for cmd in "${SCRIPT_DIR}"/kaptain-*; do
   if [[ -x "${cmd}" ]]; then
     echo "  $(basename "${cmd}")"
   fi
 done
 echo
-

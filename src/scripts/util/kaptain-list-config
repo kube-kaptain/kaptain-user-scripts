@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# List config files and their values.
+# Run from repo root.
+#
+# Usage: kaptain-list-config [--dir DIR]
+set -euo pipefail
+
+CONFIG_DIR="${CONFIG_DIR:-src/config}"
+
+usage() {
+  echo "Usage: kaptain list config [--dir DIR]"
+  echo ""
+  echo "List config files and their values."
+  echo ""
+  echo "Options:"
+  echo "  --dir DIR     Config directory (default: src/config)"
+  echo "  -h, --help    Show this help"
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --dir requires a value" >&2
+        usage
+        exit 1
+      fi
+      CONFIG_DIR="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+# Reject absolute paths for --dir
+if [[ "${CONFIG_DIR}" == /* ]]; then
+  echo "ERROR: --dir must be a relative path, i.e. a sub path of this repo" >&2
+  exit 1
+fi
+
+if [[ ! -d "${CONFIG_DIR}" ]]; then
+  echo "ERROR: Config directory not found: ${CONFIG_DIR}" >&2
+  exit 1
+fi
+
+# Collect all files
+files=()
+rels=()
+while IFS= read -r -d '' file; do
+  files+=("${file}")
+  rels+=("${file#${CONFIG_DIR}/}")
+done < <(find "${CONFIG_DIR}" -type f -print0 | sort -z)
+
+if [[ ${#files[@]} -eq 0 ]]; then
+  echo "Listing config in ${CONFIG_DIR}:"
+  echo ""
+  echo "No config files found"
+  exit 0
+fi
+
+# Categorise files by newline count
+no_newline_rels=()
+no_newline_vals=()
+one_newline_rels=()
+one_newline_vals=()
+multiline_rels=()
+multiline_counts=()
+
+for i in "${!files[@]}"; do
+  rel="${rels[$i]}"
+  newline_count=$(tr -cd '\n' < "${files[$i]}" | wc -c | tr -d ' ')
+
+  if [[ ${newline_count} -eq 0 ]]; then
+    no_newline_rels+=("${rel}")
+    no_newline_vals+=("$(cat "${files[$i]}")")
+  elif [[ ${newline_count} -eq 1 ]]; then
+    one_newline_rels+=("${rel}")
+    one_newline_vals+=("$(cat "${files[$i]}")")
+  else
+    multiline_rels+=("${rel}")
+    multiline_counts+=("${newline_count}")
+  fi
+done
+
+# Find longest relative path across all categories for padding
+max_len=0
+for rel in "${no_newline_rels[@]+"${no_newline_rels[@]}"}" "${one_newline_rels[@]+"${one_newline_rels[@]}"}" "${multiline_rels[@]+"${multiline_rels[@]}"}"; do
+  if [[ ${#rel} -gt ${max_len} ]]; then
+    max_len=${#rel}
+  fi
+done
+# +1 for colon, +2 for gap after longest key
+pad=$((max_len + 3))
+
+echo "Listing config in ${CONFIG_DIR}:"
+
+if [[ ${#no_newline_rels[@]} -gt 0 ]]; then
+  echo ""
+  echo "No newline (usually correct):"
+  for i in "${!no_newline_rels[@]}"; do
+    printf "  %-${pad}s%s\n" "${no_newline_rels[$i]}:" "${no_newline_vals[$i]}"
+  done
+fi
+
+if [[ ${#one_newline_rels[@]} -gt 0 ]]; then
+  echo ""
+  echo "One newline (consider stripping):"
+  for i in "${!one_newline_rels[@]}"; do
+    printf "  %-${pad}s%s\n" "${one_newline_rels[$i]}:" "${one_newline_vals[$i]}"
+  done
+fi
+
+if [[ ${#multiline_rels[@]} -gt 0 ]]; then
+  echo ""
+  echo "Multiline (cat <file> to inspect):"
+  for i in "${!multiline_rels[@]}"; do
+    printf "  %-${pad}s%s lines\n" "${multiline_rels[$i]}:" "${multiline_counts[$i]}"
+  done
+fi
+
+echo ""
+
+# Build summary
+summary_parts=()
+[[ ${#no_newline_rels[@]} -gt 0 ]] && summary_parts+=("${#no_newline_rels[@]} no-newline")
+[[ ${#one_newline_rels[@]} -gt 0 ]] && summary_parts+=("${#one_newline_rels[@]} one-newline")
+[[ ${#multiline_rels[@]} -gt 0 ]] && summary_parts+=("${#multiline_rels[@]} multiline")
+
+summary=""
+for part in "${summary_parts[@]}"; do
+  if [[ -n "${summary}" ]]; then
+    summary+=", "
+  fi
+  summary+="${part}"
+done
+echo "Summary: ${summary}"

@@ -6,6 +6,7 @@
 
 CLI_SCRIPTS_DIR="src/scripts/cli"
 ENC_SCRIPTS_DIR="src/scripts/encryption"
+UTIL_SCRIPTS_DIR="src/scripts/util"
 OUTPUT_SUB_PATH="${OUTPUT_SUB_PATH:-target}"
 
 setup() {
@@ -27,6 +28,7 @@ setup() {
   # Copy all scripts to test bin
   cp "${CLI_SCRIPTS_DIR}"/kaptain-* "${TEST_BIN}/"
   cp "${ENC_SCRIPTS_DIR}"/kaptain-* "${TEST_BIN}/"
+  cp "${UTIL_SCRIPTS_DIR}"/kaptain-* "${TEST_BIN}/"
 }
 
 # Helper to create files with specific timestamps
@@ -72,6 +74,128 @@ create_file_with_time() {
   [[ "$output" == *"--dir"* ]]
 }
 
+@test "list router: config target delegates" {
+  run "${TEST_BIN}/kaptain-list" config --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--dir"* ]]
+}
+
+# =============================================================================
+# list-config argument handling
+# =============================================================================
+
+@test "list-config: --help shows usage" {
+  run "${TEST_BIN}/kaptain-list-config" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"* ]]
+  [[ "$output" == *"--dir"* ]]
+}
+
+@test "list-config: missing --dir value fails" {
+  run "${TEST_BIN}/kaptain-list-config" --dir
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: --dir requires a value"* ]]
+}
+
+@test "list-config: nonexistent directory fails" {
+  run "${TEST_BIN}/kaptain-list-config" --dir nonexistent/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not found"* ]]
+}
+
+@test "list-config: absolute path rejected" {
+  run "${TEST_BIN}/kaptain-list-config" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path"* ]]
+}
+
+@test "list-config: unknown option fails" {
+  run "${TEST_BIN}/kaptain-list-config" --bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Unknown option"* ]]
+}
+
+# =============================================================================
+# list-config functional tests
+# =============================================================================
+
+@test "list-config: empty directory shows no files" {
+  mkdir -p "${TEST_LIST}/config"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Listing config in"* ]]
+  [[ "$output" == *"No config files found"* ]]
+}
+
+@test "list-config: single file shows name and value" {
+  mkdir -p "${TEST_LIST}/config"
+  echo "localhost" > "${TEST_LIST}/config/hostname"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Listing config in"* ]]
+  [[ "$output" == *"One newline (consider stripping):"* ]]
+  [[ "$output" == *"hostname:"*"localhost"* ]]
+  [[ "$output" == *"1 one-newline"* ]]
+}
+
+@test "list-config: nested file shows relative path" {
+  mkdir -p "${TEST_LIST}/config/database"
+  echo "5432" > "${TEST_LIST}/config/database/port"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"database/port:"*"5432"* ]]
+}
+
+@test "list-config: multiple files listed" {
+  mkdir -p "${TEST_LIST}/config/database"
+  echo "localhost" > "${TEST_LIST}/config/hostname"
+  echo "5432" > "${TEST_LIST}/config/database/port"
+  echo "mydb" > "${TEST_LIST}/config/database/name"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"hostname:"*"localhost"* ]]
+  [[ "$output" == *"database/port:"*"5432"* ]]
+  [[ "$output" == *"database/name:"*"mydb"* ]]
+  [[ "$output" == *"3 one-newline"* ]]
+}
+
+@test "list-config: newline categories" {
+  mkdir -p "${TEST_LIST}/config"
+  printf "no-trailing-newline" > "${TEST_LIST}/config/no-nl"
+  echo "one-newline-value" > "${TEST_LIST}/config/one-nl"
+  printf "line1\nline2\n" > "${TEST_LIST}/config/two-nl"
+  printf "line1\nline2\nline3\nline4\n" > "${TEST_LIST}/config/multi"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No newline (usually correct):"* ]]
+  [[ "$output" == *"no-nl:"*"no-trailing-newline"* ]]
+  [[ "$output" == *"One newline (consider stripping):"* ]]
+  [[ "$output" == *"one-nl:"*"one-newline-value"* ]]
+  [[ "$output" == *"Multiline (cat <file> to inspect):"* ]]
+  [[ "$output" == *"two-nl:"*"2 lines"* ]]
+  [[ "$output" == *"multi:"*"4 lines"* ]]
+  [[ "$output" == *"1 no-newline"* ]]
+  [[ "$output" == *"1 one-newline"* ]]
+  [[ "$output" == *"2 multiline"* ]]
+  # Verify comma-space separation in summary
+  [[ "$output" == *"1 no-newline, 1 one-newline, 2 multiline"* ]]
+}
+
+@test "list-config: works with custom dir" {
+  mkdir -p "${TEST_LIST}/my-config"
+  echo "custom-value" > "${TEST_LIST}/my-config/key"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/my-config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Listing config in ${TEST_LIST}/my-config"* ]]
+  [[ "$output" == *"key:"*"custom-value"* ]]
+}
+
 # =============================================================================
 # list-secrets argument handling
 # =============================================================================
@@ -115,7 +239,7 @@ create_file_with_time() {
 @test "list-secrets: empty directory shows no files" {
   run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"No raw or decrypted files found"* ]]
+  [[ "$output" == *"No raw, decrypted, or encrypted files found"* ]]
 }
 
 @test "list-secrets: raw without enc shows pending encryption" {
@@ -126,6 +250,7 @@ create_file_with_time() {
   [[ "$output" == *"Pending encryption:"* ]]
   [[ "$output" == *"new-secret.raw"* ]]
   [[ "$output" == *"1 pending encryption"* ]]
+  [[ "$output" == *"0 encrypted"* ]]
 }
 
 @test "list-secrets: raw newer than enc shows pending encryption" {
@@ -187,13 +312,14 @@ create_file_with_time() {
   [[ "$output" == *"1 stale txt"* ]]
 }
 
-@test "list-secrets: txt without enc shows unknown" {
+@test "list-secrets: txt without enc shows orphaned txt" {
   touch "${TEST_LIST}/secrets/orphan.txt"
 
   run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Unknown files found:"* ]]
+  [[ "$output" == *"Orphaned txt files"* ]]
   [[ "$output" == *"orphan.txt"* ]]
+  [[ "$output" == *"1 orphaned txt"* ]]
 }
 
 # =============================================================================
@@ -227,6 +353,29 @@ create_file_with_time() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"2 age"* ]]
   [[ "$output" == *"1 sha256.aes256"* ]]
+}
+
+@test "list-secrets: single enc type shows no warning" {
+  touch "${TEST_LIST}/secrets/a.age"
+  touch "${TEST_LIST}/secrets/b.age"
+
+  run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"2 age"* ]]
+  [[ "$output" != *"WARNING"* ]]
+}
+
+@test "list-secrets: mixed enc types shows warning" {
+  touch "${TEST_LIST}/secrets/a.age"
+  touch "${TEST_LIST}/secrets/b.age"
+  touch "${TEST_LIST}/secrets/c.sha256.aes256"
+
+  run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING: Mixed encryption types found"* ]]
+  [[ "$output" == *"2 age"* ]]
+  [[ "$output" == *"1 sha256.aes256"* ]]
+  [[ "$output" == *"kaptain encrypt --type"* ]]
 }
 
 @test "list-secrets: mixed scenario summary" {
@@ -292,6 +441,10 @@ create_file_with_time() {
   [[ "$output" == *"Found branchout root:"* ]]
   [[ "$output" == *"No projects found with src/secrets"* ]]
 }
+
+# =============================================================================
+# list-secrets --all tests
+# =============================================================================
 
 @test "list-secrets: --all lists multiple projects" {
   local fake_home="${TEST_LIST_ABS}/fake-home-multi"
