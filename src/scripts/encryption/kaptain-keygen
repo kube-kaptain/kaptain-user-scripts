@@ -84,8 +84,12 @@ fi
 
 # Output
 if [[ -n "${OUTPUT}" ]]; then
+  touch "${OUTPUT}"
+  chmod 600 "${OUTPUT}"
   echo "${key}" > "${OUTPUT}"
   echo "Key written to ${OUTPUT}"
+  echo ""
+  echo "Note that the key file has had permissions set for only the user to access it."
   echo ""
   echo "Keep this file safe - store it in a password manager..."
   echo "... or secure location with correct permissions/umask."
