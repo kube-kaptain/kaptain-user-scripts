@@ -95,5 +95,5 @@ else
   echo "${key}"
   echo ""
   echo "Keep this key safe - store it in a password manager..."
-  echo "... or a secure google sheet or something with good RBAC."
+  echo "... or a secure Google sheet or something with good RBAC."
 fi
