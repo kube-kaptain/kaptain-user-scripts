@@ -6,6 +6,7 @@
 
 CLI_SCRIPTS_DIR="src/scripts/cli"
 ENC_SCRIPTS_DIR="src/scripts/encryption"
+UTIL_SCRIPTS_DIR="src/scripts/util"
 OUTPUT_SUB_PATH="${OUTPUT_SUB_PATH:-target}"
 
 setup() {
@@ -27,6 +28,7 @@ setup() {
   # Copy all scripts to test bin
   cp "${CLI_SCRIPTS_DIR}"/kaptain-* "${TEST_BIN}/"
   cp "${ENC_SCRIPTS_DIR}"/kaptain-* "${TEST_BIN}/"
+  cp "${UTIL_SCRIPTS_DIR}"/kaptain-* "${TEST_BIN}/"
 }
 
 # Helper to create files with specific timestamps

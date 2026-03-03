@@ -5,9 +5,10 @@
 # Package scripts for release - creates zip bundles for Homebrew formulas
 #
 # Creates:
-#   kaptain-user-scripts.zip           - all scripts (cli + encryption)
+#   kaptain-user-scripts.zip           - all scripts (cli + encryption + util)
 #   kaptain-user-scripts-cli.zip       - cli scripts only
 #   kaptain-user-scripts-encryption.zip - encryption scripts only
+#   kaptain-user-scripts-util.zip      - utility scripts (list-secrets, clean-secrets, etc.)
 #   kaptain-user-scripts-42.zip        - for meta package in brew (cannot install nothing)
 #
 # Each zip contains scripts/* at the root.
@@ -32,12 +33,14 @@ rm -rf "${PACKAGE_DIR}"
 mkdir -p "${DOCKER_CONTEXT_SUB_PATH}"
 mkdir -p "${PACKAGE_DIR}/cli/scripts"
 mkdir -p "${PACKAGE_DIR}/encryption/scripts"
+mkdir -p "${PACKAGE_DIR}/util/scripts"
 mkdir -p "${PACKAGE_DIR}/all/scripts"
 mkdir -p "${PACKAGE_DIR}/42/scripts"
 
 echo "Copying all scripts..."
 cp "${SCRIPTS}/cli/"* "${PACKAGE_DIR}/all/scripts/"
 cp "${SCRIPTS}/encryption/"* "${PACKAGE_DIR}/all/scripts/"
+cp "${SCRIPTS}/util/"* "${PACKAGE_DIR}/all/scripts/"
 cd "${PACKAGE_DIR}/all"
 zip -r kaptain-user-scripts.zip scripts/
 cd -
@@ -62,6 +65,14 @@ zip -r kaptain-user-scripts-encryption.zip scripts/
 cd -
 cp "${PACKAGE_DIR}/encryption/kaptain-user-scripts-encryption.zip" "${DOCKER_CONTEXT_SUB_PATH}/kaptain-user-scripts-encryption-${VERSION}.zip"
 echo "  Created: kaptain-user-scripts-encryption.zip"
+
+echo "Copying util scripts..."
+cp "${SCRIPTS}/util/"* "${PACKAGE_DIR}/util/scripts/"
+cd "${PACKAGE_DIR}/util"
+zip -r kaptain-user-scripts-util.zip scripts/
+cd -
+cp "${PACKAGE_DIR}/util/kaptain-user-scripts-util.zip" "${DOCKER_CONTEXT_SUB_PATH}/kaptain-user-scripts-util-${VERSION}.zip"
+echo "  Created: kaptain-user-scripts-util.zip"
 
 echo "Copying 42 script..."
 cp "${SCRIPTS}/cli/kaptain-42" "${PACKAGE_DIR}/42/scripts/"
