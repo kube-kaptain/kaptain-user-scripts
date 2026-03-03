@@ -262,6 +262,7 @@ create_file_with_time() {
   [[ "$output" == *"Usage:"* ]]
   [[ "$output" == *"--dir"* ]]
   [[ "$output" == *"--all"* ]]
+  [[ "$output" == *"--verbose"* ]]
 }
 
 @test "list-secrets: missing --dir value fails" {
@@ -458,6 +459,43 @@ create_file_with_time() {
   [[ "$output" == *"1 exposed"* ]]
   [[ "$output" == *"1 unknown"* ]]
   [[ "$output" == *"2 age"* ]]
+}
+
+# =============================================================================
+# list-secrets --verbose tests
+# =============================================================================
+
+@test "list-secrets: verbose lists encrypted files" {
+  touch "${TEST_LIST}/secrets/a.age"
+  touch "${TEST_LIST}/secrets/b.age"
+  touch "${TEST_LIST}/secrets/nested/c.age"
+
+  run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets" --verbose
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Encrypted files:"* ]]
+  [[ "$output" == *"age:"* ]]
+  [[ "$output" == *"a.age"* ]]
+  [[ "$output" == *"b.age"* ]]
+  [[ "$output" == *"c.age"* ]]
+}
+
+@test "list-secrets: without verbose does not list encrypted files" {
+  touch "${TEST_LIST}/secrets/a.age"
+  touch "${TEST_LIST}/secrets/b.age"
+
+  run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Encrypted files:"* ]]
+  [[ "$output" == *"2 age"* ]]
+}
+
+@test "list-secrets: verbose with -v shorthand" {
+  touch "${TEST_LIST}/secrets/a.age"
+
+  run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets" -v
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Encrypted files:"* ]]
+  [[ "$output" == *"a.age"* ]]
 }
 
 # =============================================================================

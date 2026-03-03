@@ -38,7 +38,7 @@ Just run each command in series doing what it says in the comment after the comm
 kaptain list secrets                          # see what's there (nothing encrypted yet)
 kaptain keygen                                # generate a key, save it somewhere safe
 kaptain encrypt                               # encrypt all .raw files, paste key when prompted
-kaptain list secrets                          # confirm encryption worked (raw files now stale)
+kaptain list secrets -v                       # confirm encryption worked (raw files now stale)
 kaptain decrypt                               # decrypt to .txt files, paste key when prompted
 kaptain list secrets                          # see all three file types (.raw, .age, .txt)
 echo "changed" > src/secrets/db-password.raw  # simulate editing a secret
@@ -135,7 +135,7 @@ Done. Encrypted 3 file(s)
 ### 4. List again - see the encrypted state
 
 ```bash
-kaptain list secrets
+kaptain list secrets -v
 ```
 
 Output:
@@ -149,12 +149,19 @@ Raw files:
     src/secrets/database/hostname.raw
     src/secrets/database/port.raw
 
+Encrypted files:
+  age:
+    src/secrets/db-password.age
+    src/secrets/database/hostname.age
+    src/secrets/database/port.age
+
 Summary: 3 stale raw, 3 age
 ```
 
 The `.age` files now exist and are newer than the `.raw` files, so the raw
-files show as stale. The encrypted files are counted in the summary. At this
-point the `.raw` files can be cleaned up (step 9) or kept for reference.
+files show as stale. The `-v` flag lists each encrypted file individually;
+without it, they are only counted in the summary. At this point the `.raw`
+files are no longer needed and can and should be cleaned up (step 9).
 
 
 ### 5. Decrypt the encrypted files
@@ -321,6 +328,7 @@ Only the encrypted `.age` files remain. These are safe to commit to git.
 ## Tips
 
 - Use `--dir` on any command to target a different secrets directory
+- Use `kaptain list secrets -v` to list individual encrypted files
 - Use `--dry-run` with `kaptain clean secrets` to preview before deleting
 - Use `kaptain list secrets --all` to scan all projects in a branchout tree
 - The encryption type is auto-detected from existing files, use `--type` to override

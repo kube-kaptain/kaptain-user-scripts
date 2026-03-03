@@ -83,7 +83,7 @@ Utility Commands:
   kaptain list config [--dir DIR] [--all]
     List config with key/token-name on the left and value to right
 
-  kaptain list secrets [--dir DIR] [--all]
+  kaptain list secrets [--dir DIR] [--all] [-v|--verbose]
     List encrypted files and unencrypted raw input and extracted output files
 
   kaptain clean secrets [--dir DIR] [--all]
