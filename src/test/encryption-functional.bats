@@ -391,24 +391,22 @@ count_files() {
 }
 
 # =============================================================================
-# SECRETS_DIR environment variable
+# KAPTAIN_USER_SCRIPTS_SECRETS_DIR environment variable
 # =============================================================================
 
-@test "encrypt: respects SECRETS_DIR environment variable" {
-  export SECRETS_DIR="${TEST_DIR}"
-
-  run bash -c "echo '${TEST_PASSPHRASE}' | SECRETS_DIR='${TEST_DIR}' '${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256'"
+@test "encrypt: respects KAPTAIN_USER_SCRIPTS_SECRETS_DIR environment variable" {
+  run bash -c "echo '${TEST_PASSPHRASE}' | KAPTAIN_USER_SCRIPTS_SECRETS_DIR='${TEST_DIR}' '${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256'"
 
   [ "$status" -eq 0 ]
   [ "$(count_files "${TEST_DIR}" "*.sha256.aes256")" -eq 3 ]
 }
 
-@test "decrypt: respects SECRETS_DIR environment variable" {
+@test "decrypt: respects KAPTAIN_USER_SCRIPTS_SECRETS_DIR environment variable" {
   # Encrypt first
   echo "${TEST_PASSPHRASE}" | "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256" --dir "${TEST_DIR}"
   find "${TEST_DIR}" -name "*.raw" -delete
 
-  run bash -c "echo '${TEST_PASSPHRASE}' | SECRETS_DIR='${TEST_DIR}' '${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256'"
+  run bash -c "echo '${TEST_PASSPHRASE}' | KAPTAIN_USER_SCRIPTS_SECRETS_DIR='${TEST_DIR}' '${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256'"
 
   [ "$status" -eq 0 ]
   [ "$(count_files "${TEST_DIR}" "*.txt")" -eq 3 ]
