@@ -567,3 +567,215 @@ create_file_with_time() {
   [[ "$output" == *"secret.raw"* ]]
   [[ "$output" != *"src/secrets/secret.raw"* ]]
 }
+
+# =============================================================================
+# list-manifests router
+# =============================================================================
+
+@test "list router: manifests target delegates" {
+  run "${TEST_BIN}/kaptain-list" manifests --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--dir"* ]]
+}
+
+# =============================================================================
+# list-manifests argument handling
+# =============================================================================
+
+@test "list-manifests: --help shows usage" {
+  run "${TEST_BIN}/kaptain-list-manifests" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"* ]]
+  [[ "$output" == *"--dir"* ]]
+  [[ "$output" == *"--all"* ]]
+}
+
+@test "list-manifests: missing --dir value fails" {
+  run "${TEST_BIN}/kaptain-list-manifests" --dir
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: --dir requires a value"* ]]
+}
+
+@test "list-manifests: nonexistent directory fails" {
+  run "${TEST_BIN}/kaptain-list-manifests" --dir no/such/dir
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: Manifests directory not found"* ]]
+}
+
+@test "list-manifests: absolute path rejected" {
+  run "${TEST_BIN}/kaptain-list-manifests" --dir /tmp/nope
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: --dir must be a relative path"* ]]
+}
+
+@test "list-manifests: unknown option fails" {
+  run "${TEST_BIN}/kaptain-list-manifests" --bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: Unknown option"* ]]
+}
+
+# =============================================================================
+# list-manifests functionality
+# =============================================================================
+
+@test "list-manifests: empty directory shows no files" {
+  mkdir -p "${TEST_LIST}/manifests-empty"
+  run "${TEST_BIN}/kaptain-list-manifests" --dir "${TEST_LIST}/manifests-empty"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No manifest files found"* ]]
+}
+
+@test "list-manifests: valid yaml shows line count" {
+  mkdir -p "${TEST_LIST}/manifests-valid"
+  printf 'apiVersion: v1\nkind: Service\nmetadata:\n  name: test\n' > "${TEST_LIST}/manifests-valid/service.yaml"
+  run "${TEST_BIN}/kaptain-list-manifests" --dir "${TEST_LIST}/manifests-valid"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Valid:"* ]]
+  [[ "$output" == *"service.yaml"* ]]
+  [[ "$output" == *"4 lines"* ]]
+  [[ "$output" == *"Summary: 1 valid"* ]]
+}
+
+@test "list-manifests: nested files show relative path" {
+  mkdir -p "${TEST_LIST}/manifests-nested/base"
+  printf 'line1\nline2\n' > "${TEST_LIST}/manifests-nested/base/deploy.yaml"
+  run "${TEST_BIN}/kaptain-list-manifests" --dir "${TEST_LIST}/manifests-nested"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"base/deploy.yaml"* ]]
+  [[ "$output" == *"2 lines"* ]]
+}
+
+@test "list-manifests: yml files shown as invalid with wrong suffix" {
+  mkdir -p "${TEST_LIST}/manifests-yml"
+  printf 'a\n' > "${TEST_LIST}/manifests-yml/ingress.yml"
+  run "${TEST_BIN}/kaptain-list-manifests" --dir "${TEST_LIST}/manifests-yml"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Invalid:"* ]]
+  [[ "$output" == *"ingress.yml"* ]]
+  [[ "$output" == *"wrong suffix"* ]]
+  [[ "$output" == *"Summary: 1 invalid"* ]]
+}
+
+@test "list-manifests: uppercase yaml shown as invalid" {
+  mkdir -p "${TEST_LIST}/manifests-upper"
+  printf 'a\n' > "${TEST_LIST}/manifests-upper/Deployment.yaml"
+  run "${TEST_BIN}/kaptain-list-manifests" --dir "${TEST_LIST}/manifests-upper"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Invalid:"* ]]
+  [[ "$output" == *"Deployment.yaml"* ]]
+  [[ "$output" == *"uppercase in name"* ]]
+}
+
+@test "list-manifests: uppercase yml shows both reasons" {
+  mkdir -p "${TEST_LIST}/manifests-both"
+  printf 'a\n' > "${TEST_LIST}/manifests-both/Omg.yml"
+  run "${TEST_BIN}/kaptain-list-manifests" --dir "${TEST_LIST}/manifests-both"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Omg.yml"* ]]
+  [[ "$output" == *"wrong suffix, uppercase in name"* ]]
+}
+
+@test "list-manifests: non-yaml files shown as not a manifest" {
+  mkdir -p "${TEST_LIST}/manifests-other"
+  printf 'hello\n' > "${TEST_LIST}/manifests-other/README.md"
+  run "${TEST_BIN}/kaptain-list-manifests" --dir "${TEST_LIST}/manifests-other"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Invalid:"* ]]
+  [[ "$output" == *"README.md"* ]]
+  [[ "$output" == *"not a manifest"* ]]
+}
+
+@test "list-manifests: mixed valid and invalid" {
+  mkdir -p "${TEST_LIST}/manifests-mixed"
+  printf 'a\nb\nc\n' > "${TEST_LIST}/manifests-mixed/deployment.yaml"
+  printf 'a\n' > "${TEST_LIST}/manifests-mixed/service.yml"
+  printf 'a\n' > "${TEST_LIST}/manifests-mixed/ConfigMap.yaml"
+  printf 'a\n' > "${TEST_LIST}/manifests-mixed/notes.txt"
+  run "${TEST_BIN}/kaptain-list-manifests" --dir "${TEST_LIST}/manifests-mixed"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Valid:"* ]]
+  [[ "$output" == *"deployment.yaml"* ]]
+  [[ "$output" == *"3 lines"* ]]
+  [[ "$output" == *"Invalid:"* ]]
+  [[ "$output" == *"service.yml"* ]]
+  [[ "$output" == *"wrong suffix"* ]]
+  [[ "$output" == *"ConfigMap.yaml"* ]]
+  [[ "$output" == *"uppercase in name"* ]]
+  [[ "$output" == *"notes.txt"* ]]
+  [[ "$output" == *"not a manifest"* ]]
+  [[ "$output" == *"Summary: 1 valid, 3 invalid"* ]]
+}
+
+@test "list-manifests: works with custom dir" {
+  mkdir -p "${TEST_LIST}/custom-k8s"
+  printf 'line\n' > "${TEST_LIST}/custom-k8s/pod.yaml"
+  run "${TEST_BIN}/kaptain-list-manifests" --dir "${TEST_LIST}/custom-k8s"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"pod.yaml"* ]]
+}
+
+# =============================================================================
+# list-manifests --all tests
+# =============================================================================
+
+@test "list-manifests: --all shown in help" {
+  run "${TEST_BIN}/kaptain-list-manifests" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--all"* ]]
+}
+
+@test "list-manifests: --all fails when not under ~/projects/" {
+  run bash -c "cd /tmp && '${TEST_BIN_ABS}/kaptain-list-manifests' --all"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Not under ~/projects/"* ]]
+}
+
+@test "list-manifests: --all fails when branchout files not found" {
+  local fake_home="${TEST_LIST_ABS}/fake-home-manifests-nobo"
+  mkdir -p "${fake_home}/projects/testproj/group/group-project"
+
+  HOME="${fake_home}" run bash -c "cd '${fake_home}/projects/testproj/group/group-project' && '${TEST_BIN_ABS}/kaptain-list-manifests' --all"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Branchout root not found"* ]]
+}
+
+@test "list-manifests: --all finds branchout root and reports no projects" {
+  local fake_home="${TEST_LIST_ABS}/fake-home-manifests-empty"
+  local branchout_root="${fake_home}/projects/testproj"
+
+  mkdir -p "${branchout_root}/group/group-project"
+  touch "${branchout_root}/Branchoutfile"
+  touch "${branchout_root}/Branchoutprojects"
+
+  HOME="${fake_home}" run bash -c "cd '${fake_home}/projects/testproj/group/group-project' && '${TEST_BIN_ABS}/kaptain-list-manifests' --all"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No projects found with src/kubernetes"* ]]
+}
+
+@test "list-manifests: --all lists multiple projects" {
+  local fake_home="${TEST_LIST_ABS}/fake-home-manifests-multi"
+  local branchout_root="${fake_home}/projects/testproj"
+
+  mkdir -p "${branchout_root}/group/group-alpha/src/kubernetes"
+  mkdir -p "${branchout_root}/group/group-beta/src/kubernetes"
+  touch "${branchout_root}/Branchoutfile"
+  touch "${branchout_root}/Branchoutprojects"
+
+  printf 'a\nb\nc\n' > "${branchout_root}/group/group-alpha/src/kubernetes/deploy.yaml"
+  printf 'x\n' > "${branchout_root}/group/group-beta/src/kubernetes/service.yaml"
+
+  HOME="${fake_home}" run bash -c "cd '${branchout_root}/group/group-alpha' && '${TEST_BIN_ABS}/kaptain-list-manifests' --all"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Found branchout root:"* ]]
+  [[ "$output" == *"Found 2 project(s) with src/kubernetes"* ]]
+  [[ "$output" == *"group/group-alpha"* ]]
+  [[ "$output" == *"group/group-beta"* ]]
+  [[ "$output" == *"Listing src/kubernetes in group/group-alpha"* ]]
+  [[ "$output" == *"Listing src/kubernetes in group/group-beta"* ]]
+  [[ "$output" == *"Valid:"* ]]
+  [[ "$output" == *"deploy.yaml"* ]]
+  [[ "$output" == *"3 lines"* ]]
+  [[ "$output" == *"service.yaml"* ]]
+  [[ "$output" == *"1 lines"* ]]
+  [[ "$output" == *"Done. Listed 2 project(s)."* ]]
+}

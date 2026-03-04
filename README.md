@@ -50,11 +50,12 @@ Currently CLI, routing, utility and encryption scripts useful to kaptain users.
 
 ### Utility
 
-| Script                  | Description                                   |
-|-------------------------|-----------------------------------------------|
-| `kaptain-list-config`   | List config files and their values            |
-| `kaptain-list-secrets`  | List secret files and their encryption status |
-| `kaptain-clean-secrets` | Remove decrypted secret files (.raw, .txt)    |
+| Script                   | Description                                      |
+|--------------------------|--------------------------------------------------|
+| `kaptain-list-config`    | List config files and their values               |
+| `kaptain-list-secrets`   | List secret files and their encryption status    |
+| `kaptain-list-manifests` | List Kubernetes manifest files and validate them |
+| `kaptain-clean-secrets`  | Remove decrypted secret files (.raw, .txt)       |
 
 ### Encryption
 

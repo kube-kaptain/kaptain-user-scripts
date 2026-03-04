@@ -80,6 +80,9 @@ echo
 
 cat <<'EOF'
 Utility Commands:
+  kaptain list manifests [--dir DIR] [--all]
+    List Kubernetes manifest files and their line counts
+
   kaptain list config [--dir DIR] [--all]
     List config with key/token-name on the left and value to right
 
