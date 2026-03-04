@@ -563,7 +563,7 @@ create_file_with_time() {
   [[ "$output" == *"Listing src/secrets in group/group-beta"* ]]
   [[ "$output" == *"Done. Listed 2 project(s)."* ]]
 
-  # Paths should be relative (src/secrets/...), not absolute
-  [[ "$output" == *"src/secrets/secret.raw"* ]]
-  [[ "$output" != *"${branchout_root}/group/group-alpha/src/secrets/secret.raw"* ]]
+  # Paths should show key name only, not full or partial path
+  [[ "$output" == *"secret.raw"* ]]
+  [[ "$output" != *"src/secrets/secret.raw"* ]]
 }
