@@ -9,11 +9,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_SECRETS_DIR="src/secrets"
-
-# Parse arguments
+# Parse arguments - consume --type, pass everything else through
 TYPE=""
-DIR="${DEFAULT_SECRETS_DIR}"
+DIR="${SECRETS_DIR:-src/secrets}"
+PASSTHROUGH=()
 
 usage() {
   echo "Usage: kaptain decrypt [--type TYPE] [--dir DIR]"
@@ -41,6 +40,7 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       DIR="$2"
+      PASSTHROUGH+=("$1" "$2")
       shift 2
       ;;
     -h|--help)
@@ -143,6 +143,4 @@ if [[ ! -x "${DECRYPT_SCRIPT}" ]]; then
   exit 1
 fi
 
-# Export DIR for the script (they currently use hardcoded path, but future-proofing)
-export SECRETS_DIR="${DIR}"
-exec "${DECRYPT_SCRIPT}"
+exec "${DECRYPT_SCRIPT}" "${PASSTHROUGH[@]}"
