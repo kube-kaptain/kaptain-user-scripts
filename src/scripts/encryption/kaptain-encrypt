@@ -19,7 +19,7 @@ DEFAULT_TYPE="age"
 
 # Parse arguments - consume --type, pass everything else through
 TYPE=""
-DIR="${SECRETS_DIR:-src/secrets}"
+DIR="${KAPTAIN_USER_SCRIPTS_SECRETS_DIR:-src/secrets}"
 PASSTHROUGH=()
 
 usage() {

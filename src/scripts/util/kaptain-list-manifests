@@ -8,7 +8,7 @@
 # Usage: kaptain-list-manifests [--dir DIR] [--all]
 set -euo pipefail
 
-MANIFESTS_DIR="${MANIFESTS_DIR:-src/kubernetes}"
+MANIFESTS_DIR="${KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR:-src/kubernetes}"
 ALL_PROJECTS=false
 
 usage() {

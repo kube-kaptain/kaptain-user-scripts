@@ -8,7 +8,7 @@
 # Usage: kaptain-list-config [--dir DIR] [--all]
 set -euo pipefail
 
-CONFIG_DIR="${CONFIG_DIR:-src/config}"
+CONFIG_DIR="${KAPTAIN_USER_SCRIPTS_CONFIG_DIR:-src/config}"
 ALL_PROJECTS=false
 
 usage() {
