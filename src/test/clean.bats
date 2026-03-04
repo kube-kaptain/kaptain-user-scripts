@@ -290,6 +290,10 @@ create_workflow_files() {
   [[ "$output" == *"Cleaning src/secrets in group/group-beta"* ]]
   [[ "$output" == *"Done. Cleaned 2 project(s)."* ]]
 
+  # Paths should be relative (src/secrets/...), not absolute
+  [[ "$output" == *"Deleting src/secrets/secret1.raw"* ]]
+  [[ "$output" != *"${branchout_root}/group/group-alpha/src/secrets/secret1.raw"* ]]
+
   # Verify files were cleaned
   [ ! -f "${branchout_root}/group/group-alpha/src/secrets/secret1.raw" ]
   [ ! -f "${branchout_root}/group/group-alpha/src/secrets/secret1.txt" ]
@@ -314,6 +318,10 @@ create_workflow_files() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"Dry run"* ]]
   [[ "$output" == *"Would clean 1 project(s)"* ]]
+
+  # Paths should be relative, not absolute
+  [[ "$output" == *"src/secrets/secret.raw"* ]]
+  [[ "$output" != *"${branchout_root}/group/group-proj/src/secrets/secret.raw"* ]]
 
   # Files should still exist
   [ -f "${branchout_root}/group/group-proj/src/secrets/secret.raw" ]
