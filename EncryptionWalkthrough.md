@@ -64,9 +64,9 @@ Listing secrets in src/secrets:
 
 Raw files:
   Pending encryption:
-    src/secrets/db-password.raw
-    src/secrets/database/hostname.raw
-    src/secrets/database/port.raw
+    db-password.raw
+    database/hostname.raw
+    database/port.raw
 
 Summary: 3 pending encryption, 0 encrypted
 ```
@@ -145,15 +145,15 @@ Listing secrets in src/secrets:
 
 Raw files:
   Stale, should remove:
-    src/secrets/db-password.raw
-    src/secrets/database/hostname.raw
-    src/secrets/database/port.raw
+    db-password.raw
+    database/hostname.raw
+    database/port.raw
 
 Encrypted files:
   age:
-    src/secrets/db-password.age
-    src/secrets/database/hostname.age
-    src/secrets/database/port.age
+    db-password.age
+    database/hostname.age
+    database/port.age
 
 Summary: 3 stale raw, 3 age
 ```
@@ -201,15 +201,15 @@ Listing secrets in src/secrets:
 
 Raw files:
   Stale, should remove:
-    src/secrets/db-password.raw
-    src/secrets/database/hostname.raw
-    src/secrets/database/port.raw
+    db-password.raw
+    database/hostname.raw
+    database/port.raw
 
 Decrypted files:
   Exposed current:
-    src/secrets/db-password.txt
-    src/secrets/database/hostname.txt
-    src/secrets/database/port.txt
+    db-password.txt
+    database/hostname.txt
+    database/port.txt
 
 Summary: 3 stale raw, 3 exposed, 3 age
 ```
@@ -238,16 +238,16 @@ Listing secrets in src/secrets:
 
 Raw files:
   Pending encryption:
-    src/secrets/db-password.raw
+    db-password.raw
   Stale, should remove:
-    src/secrets/database/hostname.raw
-    src/secrets/database/port.raw
+    database/hostname.raw
+    database/port.raw
 
 Decrypted files:
   Exposed current:
-    src/secrets/db-password.txt
-    src/secrets/database/hostname.txt
-    src/secrets/database/port.txt
+    db-password.txt
+    database/hostname.txt
+    database/port.txt
 
 Summary: 1 pending encryption, 2 stale raw, 3 exposed, 3 age
 ```

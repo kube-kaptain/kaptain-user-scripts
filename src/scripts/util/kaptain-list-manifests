@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# List Kubernetes manifest files and their line counts.
+# Run from repo root.
+#
+# Usage: kaptain-list-manifests [--dir DIR] [--all]
+set -euo pipefail
+
+MANIFESTS_DIR="${KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR:-src/kubernetes}"
+ALL_PROJECTS=false
+
+usage() {
+  echo "Usage: kaptain list manifests [--dir DIR] [--all]"
+  echo ""
+  echo "List Kubernetes manifest files and their line counts."
+  echo ""
+  echo "Options:"
+  echo "  --dir DIR     Manifests directory (default: src/kubernetes)"
+  echo "  --all         List all projects in branchout tree"
+  echo "  -h, --help    Show this help"
+}
+
+# Find branchout root by walking up from cwd
+# Sets BRANCHOUT_ROOT on success, exits on failure
+find_branchout_root() {
+  local dir="${PWD}"
+  local home_projects="${HOME}/projects"
+
+  # Check we're under ~/projects/*/
+  if [[ "${dir}" != "${home_projects}/"* ]]; then
+    echo "ERROR: Not under ~/projects/, cannot find branchout tree" >&2
+    exit 1
+  fi
+
+  while [[ "${dir}" != "${home_projects}" && "${dir}" != "/" ]]; do
+    if [[ -f "${dir}/Branchoutfile" && -f "${dir}/Branchoutprojects" ]]; then
+      BRANCHOUT_ROOT="${dir}"
+      return 0
+    fi
+    dir=$(dirname "${dir}")
+  done
+
+  echo "ERROR: Branchout root not found" >&2
+  echo "ERROR: Cannot perform --all manifest listing without a valid structure" >&2
+  exit 1
+}
+
+# List manifests from a single directory
+# Arguments: $1 = manifests directory path
+list_manifests_dir() {
+  local manifests_dir="$1"
+
+  # Collect all files
+  local all_files=()
+  while IFS= read -r -d '' file; do
+    all_files+=("${file}")
+  done < <(find "${manifests_dir}" -type f -print0 | sort -z)
+
+  if [[ ${#all_files[@]} -eq 0 ]]; then
+    echo ""
+    echo "No manifest files found"
+    return 0
+  fi
+
+  # Categorise files
+  local valid_rels=()
+  local valid_files=()
+  local invalid_rels=()
+  local invalid_reasons=()
+
+  for file in "${all_files[@]}"; do
+    local rel="${file#${manifests_dir}/}"
+    local basename="${file##*/}"
+    local reasons=()
+
+    if [[ "${file}" == *.yaml ]]; then
+      # Check for uppercase in the basename (without extension)
+      local name_part="${basename%.yaml}"
+      if [[ "${name_part}" =~ [A-Z] ]]; then
+        reasons+=("uppercase in name")
+      fi
+    elif [[ "${file}" == *.yml ]]; then
+      reasons+=("wrong suffix")
+      local name_part="${basename%.yml}"
+      if [[ "${name_part}" =~ [A-Z] ]]; then
+        reasons+=("uppercase in name")
+      fi
+    else
+      reasons+=("not a manifest")
+    fi
+
+    if [[ ${#reasons[@]} -eq 0 ]]; then
+      valid_rels+=("${rel}")
+      valid_files+=("${file}")
+    else
+      invalid_rels+=("${rel}")
+      local reason=""
+      for r in "${reasons[@]}"; do
+        if [[ -n "${reason}" ]]; then
+          reason+=", "
+        fi
+        reason+="${r}"
+      done
+      invalid_reasons+=("${reason}")
+    fi
+  done
+
+  # Find longest relative path across all categories for padding
+  local max_len=0
+  for rel in "${valid_rels[@]+"${valid_rels[@]}"}" "${invalid_rels[@]+"${invalid_rels[@]}"}"; do
+    if [[ ${#rel} -gt ${max_len} ]]; then
+      max_len=${#rel}
+    fi
+  done
+  local pad=$((max_len + 2))
+
+  if [[ ${#valid_rels[@]} -gt 0 ]]; then
+    echo ""
+    echo "Valid:"
+    for i in "${!valid_rels[@]}"; do
+      local count
+      count=$(wc -l < "${valid_files[$i]}" | tr -d ' ')
+      printf "  %-${pad}s%s lines\n" "${valid_rels[$i]}" "${count}"
+    done
+  fi
+
+  if [[ ${#invalid_rels[@]} -gt 0 ]]; then
+    echo ""
+    echo "Invalid:"
+    for i in "${!invalid_rels[@]}"; do
+      printf "  %-${pad}s%s\n" "${invalid_rels[$i]}" "${invalid_reasons[$i]}"
+    done
+  fi
+
+  # Build summary
+  echo ""
+  local summary_parts=()
+  [[ ${#valid_rels[@]} -gt 0 ]] && summary_parts+=("${#valid_rels[@]} valid")
+  [[ ${#invalid_rels[@]} -gt 0 ]] && summary_parts+=("${#invalid_rels[@]} invalid")
+
+  local summary=""
+  for part in "${summary_parts[@]}"; do
+    if [[ -n "${summary}" ]]; then
+      summary+=", "
+    fi
+    summary+="${part}"
+  done
+  echo "Summary: ${summary}"
+}
+
+# List all projects in branchout tree
+list_all_projects() {
+  find_branchout_root
+  echo "Found branchout root: ${BRANCHOUT_ROOT}"
+
+  # Find all project dirs with manifests
+  local project_dirs=()
+  while IFS= read -r -d '' dir; do
+    project_dirs+=("$dir")
+  done < <(find "${BRANCHOUT_ROOT}" -mindepth 4 -maxdepth 4 -type d -path "*/${MANIFESTS_DIR}" -print0 2>/dev/null | sort -z)
+
+  if [[ ${#project_dirs[@]} -eq 0 ]]; then
+    echo ""
+    echo "No projects found with ${MANIFESTS_DIR}"
+    exit 0
+  fi
+
+  # Extract and display project names
+  echo ""
+  echo "Found ${#project_dirs[@]} project(s) with ${MANIFESTS_DIR}:"
+  echo ""
+  local projects=()
+  for dir in "${project_dirs[@]}"; do
+    local rel_path="${dir#${BRANCHOUT_ROOT}/}"
+    local project="${rel_path%/${MANIFESTS_DIR}}"
+    projects+=("${project}")
+    echo "  ${project}"
+  done
+
+  # List each project
+  local listed=0
+  for i in "${!project_dirs[@]}"; do
+    local manifests_path="${project_dirs[$i]}"
+    local project="${projects[$i]}"
+    echo ""
+    echo "Listing ${MANIFESTS_DIR} in ${project}:"
+    list_manifests_dir "${manifests_path}"
+    listed=$((listed + 1))
+  done
+
+  echo ""
+  echo "Done. Listed ${listed} project(s)."
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --dir requires a value" >&2
+        usage
+        exit 1
+      fi
+      MANIFESTS_DIR="$2"
+      shift 2
+      ;;
+    --all)
+      ALL_PROJECTS=true
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+# Reject absolute paths for --dir
+if [[ "${MANIFESTS_DIR}" == /* ]]; then
+  echo "ERROR: --dir must be a relative path, i.e. a sub path of this repo" >&2
+  exit 1
+fi
+
+if [[ "${ALL_PROJECTS}" == "true" ]]; then
+  list_all_projects
+else
+  if [[ ! -d "${MANIFESTS_DIR}" ]]; then
+    echo "ERROR: Manifests directory not found: ${MANIFESTS_DIR}" >&2
+    exit 1
+  fi
+  echo "Listing manifests in ${MANIFESTS_DIR}:"
+  list_manifests_dir "${MANIFESTS_DIR}"
+fi

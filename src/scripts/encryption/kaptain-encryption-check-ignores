@@ -9,7 +9,7 @@
 # Usage: kaptain-encryption-check-ignores [--dir DIR]
 set -euo pipefail
 
-SECRETS_DIR="${SECRETS_DIR:-src/secrets}"
+SECRETS_DIR="${KAPTAIN_USER_SCRIPTS_SECRETS_DIR:-src/secrets}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
