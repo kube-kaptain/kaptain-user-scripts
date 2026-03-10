@@ -65,7 +65,11 @@ complete_at() {
   COMP_WORDS=("$@")
   COMP_CWORD=$(( ${#COMP_WORDS[@]} - 1 ))
   local cur="${COMP_WORDS[COMP_CWORD]}"
-  _kaptain_completions "kaptain" "${cur}"
+  local prev=""
+  if [[ ${COMP_CWORD} -gt 0 ]]; then
+    prev="${COMP_WORDS[COMP_CWORD - 1]}"
+  fi
+  _kaptain_completions "kaptain" "${cur}" "${prev}"
   # Sort for deterministic comparison
   IFS=$'\n' COMPREPLY=($(printf '%s\n' "${COMPREPLY[@]}" | sort)); unset IFS
 }
@@ -171,4 +175,103 @@ complete_at() {
     [[ "${item}" == "sha256.aes256" ]] && count=$((count + 1))
   done
   [[ ${count} -eq 1 ]]
+}
+
+# --- Flag completion ---
+
+@test "flags: kaptain list secrets --<tab> shows flags" {
+  complete_at "kaptain" "list" "secrets" "--"
+  [[ " ${COMPREPLY[*]} " == *" --dir "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --all "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --verbose "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --help "* ]]
+}
+
+@test "flags: kaptain list secrets -<tab> shows short flags too" {
+  complete_at "kaptain" "list" "secrets" "-"
+  [[ " ${COMPREPLY[*]} " == *" -h "* ]]
+  [[ " ${COMPREPLY[*]} " == *" -v "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --dir "* ]]
+}
+
+@test "flags: kaptain encrypt --<tab> shows encrypt flags" {
+  complete_at "kaptain" "encrypt" "--"
+  [[ " ${COMPREPLY[*]} " == *" --type "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --dir "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --help "* ]]
+}
+
+@test "flags: kaptain encrypt partial --t<tab>" {
+  complete_at "kaptain" "encrypt" "--t"
+  [[ ${#COMPREPLY[@]} -eq 1 ]]
+  [[ "${COMPREPLY[0]}" == "--type" ]]
+}
+
+@test "flags: kaptain clean secrets --<tab> shows clean flags" {
+  complete_at "kaptain" "clean" "secrets" "--"
+  [[ " ${COMPREPLY[*]} " == *" --dir "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --dry-run "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --all "* ]]
+}
+
+@test "flags: kaptain keygen --<tab> shows keygen flags" {
+  complete_at "kaptain" "keygen" "--"
+  [[ " ${COMPREPLY[*]} " == *" --type "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --output "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --help "* ]]
+}
+
+@test "flags: still shown after an existing flag" {
+  complete_at "kaptain" "list" "secrets" "--all" "--"
+  [[ " ${COMPREPLY[*]} " == *" --dir "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --verbose "* ]]
+}
+
+@test "flags: unknown command returns empty" {
+  complete_at "kaptain" "zzz" "--"
+  [[ ${#COMPREPLY[@]} -eq 0 ]]
+}
+
+# --- Value completion: --type ---
+
+@test "value: --type offers encryption types" {
+  complete_at "kaptain" "encrypt" "--type" ""
+  [[ " ${COMPREPLY[*]} " == *" age "* ]]
+  [[ " ${COMPREPLY[*]} " == *" sha256.aes256 "* ]]
+  [[ " ${COMPREPLY[*]} " == *" sha256.aes256.10k "* ]]
+  [[ " ${COMPREPLY[*]} " == *" sha256.aes256.100k "* ]]
+  [[ " ${COMPREPLY[*]} " == *" sha256.aes256.600k "* ]]
+}
+
+@test "value: --type partial filters correctly" {
+  complete_at "kaptain" "encrypt" "--type" "sha"
+  [[ " ${COMPREPLY[*]} " == *" sha256.aes256 "* ]]
+  [[ " ${COMPREPLY[*]} " == *" sha256.aes256.10k "* ]]
+  [[ " ${COMPREPLY[*]} " != *" age "* ]]
+}
+
+@test "value: --type a<tab> completes to age" {
+  complete_at "kaptain" "encrypt" "--type" "a"
+  [[ ${#COMPREPLY[@]} -eq 1 ]]
+  [[ "${COMPREPLY[0]}" == "age" ]]
+}
+
+# --- Value completion: --dir ---
+
+@test "value: --dir offers directories" {
+  mkdir -p "${WORK_DIR}/testdirs/alpha"
+  mkdir -p "${WORK_DIR}/testdirs/beta"
+  cd "${WORK_DIR}/testdirs"
+  complete_at "kaptain" "list" "secrets" "--dir" ""
+  [[ " ${COMPREPLY[*]} " == *" alpha "* ]]
+  [[ " ${COMPREPLY[*]} " == *" beta "* ]]
+}
+
+# --- Sub-command completion still works alongside flags ---
+
+@test "sub-commands: kaptain list <tab> still works with flag support" {
+  complete_at "kaptain" "list" ""
+  [[ " ${COMPREPLY[*]} " == *" secrets "* ]]
+  [[ " ${COMPREPLY[*]} " == *" config "* ]]
+  [[ " ${COMPREPLY[*]} " == *" manifests "* ]]
 }

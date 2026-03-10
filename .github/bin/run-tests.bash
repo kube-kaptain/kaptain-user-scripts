@@ -75,6 +75,26 @@ if [[ ${#bats_files[@]} -gt 0 ]]; then
   echo ""
 fi
 
+# Regenerate completion data and check it matches what's committed
+TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+echo "========================================"
+echo "Running: completions staleness check"
+echo "========================================"
+
+.github/bin/generate-completions.bash
+if git diff --quiet src/docker/kaptain-completion.bash 2>/dev/null; then
+  PASSED_TESTS=$((PASSED_TESTS + 1))
+  echo ""
+  echo "[PASSED] completions up to date"
+else
+  FAILED_TESTS=$((FAILED_TESTS + 1))
+  echo ""
+  echo "[FAILED] completions are stale — commit the updated src/docker/kaptain-completion.bash"
+fi
+
+echo ""
+
 echo "========================================"
 echo "Test Summary"
 echo "========================================"
