@@ -32,16 +32,26 @@ KAPTAIN_SCRIPT_DIR="${KAPTAIN_SCRIPT_DIR:-$(dirname "$(command -v kaptain 2>/dev
 # BEGIN GENERATED COMPLETIONS — do not edit by hand
 _kaptain_flags() {
   case "$1" in
-    kaptain-clean)                    echo "--help -h" ;;
-    kaptain-list)                     echo "--help -h" ;;
-    kaptain-decrypt)                  echo "--dir --help --type -h" ;;
-    kaptain-encrypt)                  echo "--dir --help --type -h" ;;
-    kaptain-encryption-check-ignores) echo "--dir" ;;
-    kaptain-keygen)                   echo "--help --output --type -h" ;;
-    kaptain-clean-secrets)            echo "--all --dir --dry-run --help -h" ;;
-    kaptain-list-config)              echo "--all --dir --help -h" ;;
-    kaptain-list-manifests)           echo "--all --dir --help -h" ;;
-    kaptain-list-secrets)             echo "--all --dir --help --verbose -h -v" ;;
+    kaptain-clean)                      echo "--help -h" ;;
+    kaptain-list)                       echo "--help -h" ;;
+    kaptain-decrypt)                    echo "--dir --help --type -h" ;;
+    kaptain-decrypt-age)                echo "--dir --help --key-file -h" ;;
+    kaptain-decrypt-sha256.aes256)      echo "--dir --help --key-file -h" ;;
+    kaptain-decrypt-sha256.aes256.100k) echo "--dir --help --key-file -h" ;;
+    kaptain-decrypt-sha256.aes256.10k)  echo "--dir --help --key-file -h" ;;
+    kaptain-decrypt-sha256.aes256.600k) echo "--dir --help --key-file -h" ;;
+    kaptain-encrypt)                    echo "--dir --help --type -h" ;;
+    kaptain-encrypt-age)                echo "--dir --help --key-file -h" ;;
+    kaptain-encrypt-sha256.aes256)      echo "--dir --help --key-file -h" ;;
+    kaptain-encrypt-sha256.aes256.100k) echo "--dir --help --key-file -h" ;;
+    kaptain-encrypt-sha256.aes256.10k)  echo "--dir --help --key-file -h" ;;
+    kaptain-encrypt-sha256.aes256.600k) echo "--dir --help --key-file -h" ;;
+    kaptain-encryption-check-ignores)   echo "--dir" ;;
+    kaptain-keygen)                     echo "--help --output --type -h" ;;
+    kaptain-clean-secrets)              echo "--all --dir --dry-run --help -h" ;;
+    kaptain-list-config)                echo "--all --dir --help -h" ;;
+    kaptain-list-manifests)             echo "--all --dir --help -h" ;;
+    kaptain-list-secrets)               echo "--all --dir --help --verbose -h -v" ;;
   esac
 }
 _kaptain_type_values="age sha256.aes256 sha256.aes256.100k sha256.aes256.10k sha256.aes256.600k"
@@ -70,6 +80,10 @@ _kaptain_completions() {
       ;;
     --type)
       COMPREPLY=($(compgen -W "${_kaptain_type_values}" -- "${cur}" 2>/dev/null)) || true
+      return
+      ;;
+    --key-file)
+      COMPREPLY=($(compgen -f -- "${cur}" 2>/dev/null)) || true
       return
       ;;
     --output)
