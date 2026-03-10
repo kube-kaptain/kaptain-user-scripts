@@ -8,6 +8,22 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# If arguments given, delegate to that command's --help
+if [[ $# -gt 0 ]]; then
+  target="kaptain"
+  for arg in "$@"; do
+    target="${target}-${arg}"
+  done
+  target_script="${SCRIPT_DIR}/${target}"
+  if [[ -x "${target_script}" ]]; then
+    exec "${target_script}" --help
+  else
+    echo "ERROR: Unknown command: $*" >&2
+    echo "Run 'kaptain help' for available commands." >&2
+    exit 1
+  fi
+fi
+
 # Command descriptions - add entries here as new commands are created
 # Commands without entries get listed with no description
 # Commands deliberately excluded from the map get no description (e.g., 42)
@@ -90,7 +106,7 @@ Utility Commands:
     List encrypted files and unencrypted raw input and extracted output files
 
   kaptain clean secrets [--dir DIR] [--all]
-    Remove encryption-check-ignores) echo "Check gitignore covers secrets
+    Remove decrypted secret files (.raw, .txt)
 
 Encryption Commands:
   kaptain encrypt [--type TYPE] [--dir DIR]
@@ -104,7 +120,7 @@ Encryption Commands:
     --type    Encryption type (auto-detected from file extensions if omitted)
     --dir     Target directory (default: src/secrets)
 
-Run 'kaptain <command> --help' for command-specific options.
+Run 'kaptain help <command>' or 'kaptain <command> --help' for command-specific options.
 
 Direct script access: kaptain-<command>[-<subcommand>]
 
