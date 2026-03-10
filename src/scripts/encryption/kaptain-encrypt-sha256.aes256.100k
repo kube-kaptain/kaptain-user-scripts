@@ -12,30 +12,51 @@ set -euo pipefail
 ITERATIONS=100000
 SUFFIX="sha256.aes256.100k"
 
-# Handle --dir argument
-if [[ $# -eq 0 ]]; then
-  # No args - use env var or default
-  SECRETS_DIR="${KAPTAIN_USER_SCRIPTS_SECRETS_DIR:-src/secrets}"
-elif [[ $# -eq 2 ]]; then
-  if [[ "$1" != "--dir" ]]; then
-    echo "ERROR: Unknown option: $1" >&2
-    echo "Usage: $(basename "$0") [--dir DIR]" >&2
-    exit 1
-  fi
-  if [[ "$2" == /* ]]; then
-    echo "ERROR: --dir must be a relative path, i.e. a sub path of this repo" >&2
-    exit 1
-  fi
-  if [[ ! -d "$2" ]]; then
-    echo "ERROR: Directory not found: $2" >&2
-    exit 1
-  fi
-  SECRETS_DIR="$2"
-else
-  echo "ERROR: Wrong argument count, must be 0 or 2." >&2
-  echo "Usage: $(basename "$0") [--dir DIR]" >&2
-  exit 1
-fi
+# Handle arguments
+SECRETS_DIR="${KAPTAIN_USER_SCRIPTS_SECRETS_DIR:-src/secrets}"
+KEY_FILE=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dir)
+      if [[ -z "${2:-}" ]]; then
+        echo "ERROR: --dir requires an argument" >&2
+        exit 1
+      fi
+      if [[ "$2" == /* ]]; then
+        echo "ERROR: --dir must be a relative path, i.e. a sub path of this repo" >&2
+        exit 1
+      fi
+      if [[ ! -d "$2" ]]; then
+        echo "ERROR: Directory not found: $2" >&2
+        exit 1
+      fi
+      SECRETS_DIR="$2"
+      shift 2
+      ;;
+    --key-file)
+      if [[ -z "${2:-}" ]]; then
+        echo "ERROR: --key-file requires an argument" >&2
+        exit 1
+      fi
+      if [[ ! -f "$2" ]]; then
+        echo "ERROR: Key file not found: $2" >&2
+        exit 1
+      fi
+      KEY_FILE="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: $(basename "$0") [--dir DIR] [--key-file FILE]"
+      exit 0
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      echo "Usage: $(basename "$0") [--dir DIR] [--key-file FILE]" >&2
+      exit 1
+      ;;
+  esac
+done
 
 if [[ ! -d "${SECRETS_DIR}" ]]; then
   echo "ERROR: ${SECRETS_DIR} directory not found - run from repo root" >&2
@@ -60,9 +81,13 @@ fi
 
 echo "Found ${#raw_files[@]} .raw file(s) to encrypt"
 
-# Prompt for passphrase
-read -r -s -p "Enter passphrase: " passphrase
-echo
+# Get passphrase from key file or prompt
+if [[ -n "${KEY_FILE}" ]]; then
+  passphrase=$(<"${KEY_FILE}")
+else
+  read -r -s -p "Enter passphrase: " passphrase
+  echo
+fi
 
 # Validate key against existing encrypted files
 existing_file=$(find "${SECRETS_DIR}" -name "*.${SUFFIX}" -type f | head -1)
