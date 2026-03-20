@@ -201,10 +201,10 @@ create_file_with_time() {
 # list-config --all tests
 # =============================================================================
 
-@test "list-config: --all fails when not under ~/projects/" {
+@test "list-config: --all fails when not under projects directory" {
   run bash -c "cd /tmp && '${TEST_BIN_ABS}/kaptain-list-config' --all"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"Not under ~/projects/"* ]]
+  [[ "$output" == *"cannot find branchout tree"* ]]
 }
 
 @test "list-config: --all fails when branchout files not found" {
@@ -509,10 +509,10 @@ create_file_with_time() {
   [[ "$output" == *"branchout"* ]]
 }
 
-@test "list-secrets: --all fails when not under ~/projects/" {
+@test "list-secrets: --all fails when not under projects directory" {
   run bash -c "cd /tmp && '${TEST_BIN_ABS}/kaptain-list-secrets' --all"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"Not under ~/projects/"* ]]
+  [[ "$output" == *"cannot find branchout tree"* ]]
 }
 
 @test "list-secrets: --all fails when branchout files not found" {
@@ -724,10 +724,10 @@ create_file_with_time() {
   [[ "$output" == *"--all"* ]]
 }
 
-@test "list-manifests: --all fails when not under ~/projects/" {
+@test "list-manifests: --all fails when not under projects directory" {
   run bash -c "cd /tmp && '${TEST_BIN_ABS}/kaptain-list-manifests' --all"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"Not under ~/projects/"* ]]
+  [[ "$output" == *"cannot find branchout tree"* ]]
 }
 
 @test "list-manifests: --all fails when branchout files not found" {

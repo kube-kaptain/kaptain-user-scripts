@@ -233,11 +233,11 @@ create_workflow_files() {
   [[ "$output" == *"branchout"* ]]
 }
 
-@test "clean-secrets: --all fails when not under ~/projects/" {
-  # Run from /tmp which is definitely not under ~/projects/
+@test "clean-secrets: --all fails when not under projects directory" {
+  # Run from /tmp which is definitely not under the branchout projects directory
   run bash -c "cd /tmp && '${TEST_BIN_ABS}/kaptain-clean-secrets' --all"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"Not under ~/projects/"* ]]
+  [[ "$output" == *"cannot find branchout tree"* ]]
 }
 
 @test "clean-secrets: --all fails when branchout files not found" {
