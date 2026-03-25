@@ -447,7 +447,12 @@ count_files() {
 }
 
 @test "keygen: KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE=age defaults to age key" {
-  run bash -c "KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE='age' '${SCRIPTS_DIR}/kaptain-keygen'"
+  mock_dir="${OUTPUT_SUB_PATH}/test/encryption-functional/mock-bin"
+  mkdir -p "${mock_dir}"
+  echo '#!/usr/bin/env bash
+echo "AGE-SECRET-KEY-MOCK1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890MOCK"' > "${mock_dir}/age-keygen"
+  chmod +x "${mock_dir}/age-keygen"
+  run bash -c "PATH='${mock_dir}:${PATH}' KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE='age' '${SCRIPTS_DIR}/kaptain-keygen'"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"AGE-SECRET-KEY-"* ]]
@@ -461,7 +466,12 @@ count_files() {
 }
 
 @test "keygen: --type flag overrides env var" {
-  run bash -c "KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE='sha256.aes256' '${SCRIPTS_DIR}/kaptain-keygen' --type age"
+  mock_dir="${OUTPUT_SUB_PATH}/test/encryption-functional/mock-bin"
+  mkdir -p "${mock_dir}"
+  echo '#!/usr/bin/env bash
+echo "AGE-SECRET-KEY-MOCK1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890MOCK"' > "${mock_dir}/age-keygen"
+  chmod +x "${mock_dir}/age-keygen"
+  run bash -c "PATH='${mock_dir}:${PATH}' KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE='sha256.aes256' '${SCRIPTS_DIR}/kaptain-keygen' --type age"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"AGE-SECRET-KEY-"* ]]
