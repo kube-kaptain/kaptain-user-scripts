@@ -65,6 +65,7 @@ see the [Encryption Walkthrough](EncryptionWalkthrough.md).
 | Script                               | Description                                                |
 |--------------------------------------|------------------------------------------------------------|
 | `kaptain-keygen`                     | Generate encryption keys                                   |
+| `kaptain-rotate-key-for-secrets`     | Rotate encryption key (decrypt + re-encrypt)               |
 | `kaptain-decrypt-age`                | Decrypt secrets using age                                  |
 | `kaptain-decrypt-sha256.aes256`      | Decrypt secrets using OpenSSL AES-256 (default iterations) |
 | `kaptain-decrypt-sha256.aes256.100k` | Decrypt secrets using OpenSSL AES-256 (100k iterations)    |
@@ -82,6 +83,10 @@ Note that the encrypt/decrypt scripts all ask for a passphrase, but the usage is
 1. `age` must use a private key style with prefix `AGE-SECRET-KEY-` - generate with `kaptain keygen`
 2. all others use `openssl` and any key is fine - but 40+ random hex chars recommended
 
+All encrypt/decrypt leaf scripts accept `--key-file FILE` to read the passphrase from a file
+instead of prompting interactively. This is used by `kaptain-rotate-key-for-secrets` and is
+useful for scripted/automated workflows.
+
 They all encrypt from `.raw` to their respective suffix and decrypt from their suffix to `.txt`.
 
 Note, right now the encryption scripts target src/secrets by default with a --dir
@@ -92,16 +97,19 @@ cousin to read the correct directory from and init the project if needed if no
 
 ## Environment Variables
 
-Override default directory paths for all kaptain user scripts. Set these in
-your shell profile to avoid passing `--dir` on every invocation.
+Override default directory paths for all kaptain user scripts and default encrypt
+type. Set these in your shell profile to avoid passing `--dir` on every invocation.
 
-| Variable                               | Default          | Example 1                 | Example 2  | Used by                                       |
-|----------------------------------------|------------------|---------------------------|------------|-----------------------------------------------|
-| `KAPTAIN_USER_SCRIPTS_SECRETS_DIR`     | `src/secrets`    | `src/main/secrets/values` | `secrets`  | list secrets, encrypt, decrypt, clean secrets |
-| `KAPTAIN_USER_SCRIPTS_CONFIG_DIR`      | `src/config`     | N/A                       | `config`   | list config                                   |
-| `KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR`   | `src/kubernetes` | `src/main/kubernetes`     | `k8s`      | list manifests                                |
+| Variable                               | Default          | Example 1                 | Example 2       | Used by                                       |
+|----------------------------------------|------------------|---------------------------|-----------------|-----------------------------------------------|
+| `KAPTAIN_USER_SCRIPTS_SECRETS_DIR`     | `src/secrets`    | `src/main/secrets/values` | `secrets`       | list secrets, encrypt, decrypt, clean secrets |
+| `KAPTAIN_USER_SCRIPTS_CONFIG_DIR`      | `src/config`     | N/A                       | `config`        | list config                                   |
+| `KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR`   | `src/kubernetes` | `src/main/kubernetes`     | `k8s`           | list manifests                                |
+| `KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE` | `age`            | `sha256.aes256.10k`       | `sha256.aes256` | encrypt (router default), keygen              |
 
 Passing `--dir` and a value as args on any command overrides the environment variable.
+
+Passing `--type` and a valid type as args on keygen or encrypt overrides the environment variable.
 
 
 ## Installation
