@@ -29,10 +29,10 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 0. Scan script dir for `kaptain-decrypt-<suffix>` and build list of supported types (future proof) 
 1. Scan directory for encrypted file extensions from found supported list (`.age`, `.sha256.aes256`, `.sha256.aes256.10k`, etc.)
 2. If mixed types → error with clear message
-3. If uniform → delegate to specific `kaptain-decrypt-secrets-<type>` script by pattern
+3. If uniform → delegate to specific `kaptain-decrypt-<type>` script by pattern
 4. Direct long-name calls still work for automation that knows its type or users who prefer no magic
 5. **Explicit override**: `--type age|sha256.aes256|sha256.aes256.10k|...`
-5. **Explicit override**: `--dir secrets`
+6. **Explicit override**: `--dir secrets`
 
 
 ## Build Subcommand (future)
@@ -57,7 +57,16 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 * reads KaptainPM.yaml, delegates to reference scripts in build scripts package
 * need to think about how to install these - on path with brew or dynamically via docker use some user cache mechanism on a standard path 
 
+### Utility Scripts
+- `kaptain-list-config`
+- `kaptain-list-secrets`
+- `kaptain-list-manifests`
+- `kaptain-clean-secrets`
+
 ### Encryption Scripts (callable for direct use if desired)
+- `kaptain-keygen`
+- `kaptain-rotate-key-for-secrets`
+- `kaptain-encryption-check-ignores`
 - `kaptain-decrypt-age`
 - `kaptain-encrypt-age`
 - `kaptain-decrypt-sha256.aes256`
@@ -75,44 +84,37 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 - Add homebrew-kaptain - make it depend on homebrew-kaptain-user-scripts - and maybe other things
 - Add dependency from user scripts to age and openssl - should be enough?
 
-## TODO
-
-- [ ] Create homebrew-kaptain meta package - pros/cons?
-- [ ] Rename scripts as above
-- [ ] Create `kaptain` wrapper script
-- [ ] Create `kaptain-decrypt` dispatcher
-- [ ] Create `kaptain-encrypt` dispatcher with type detection logic
-
 ## Future
 
 - [ ] Create `kaptain-build` dispatcher
 
-
 ## Release Packaging
 
-Three bundles produced from kaptain-user-scripts repo:
+Five bundles produced from kaptain-user-scripts repo:
 
-| Bundle                    | Contents                              | Used By                     |
-|---------------------------|---------------------------------------|-----------------------------|
-| `kaptain-user-scripts`    | Full zip (kaptain + encryption)       | Standalone install          |
-| `kaptain-wrapper`         | Kaptain wrapper only                  | `kaptain` formula           |
-| `kaptain-encryption`      | Encryption scripts only (no wrapper)  | `kaptain-user-scripts` formula |
+| Bundle                              | Contents                                                  |
+|-------------------------------------|-----------------------------------------------------------|
+| `kaptain-user-scripts.zip`          | All scripts (cli + encryption + util)                     |
+| `kaptain-user-scripts-cli.zip`      | CLI scripts only (kaptain, kaptain-help, kaptain-clean, kaptain-list) |
+| `kaptain-user-scripts-encryption.zip` | Encryption scripts only                                 |
+| `kaptain-user-scripts-util.zip`     | Utility scripts (list-secrets, clean-secrets, etc.)       |
+| `kaptain-user-scripts-42.zip`       | Meta package placeholder for brew                         |
 
 ### Dependency Structure
 
 ```
-brew install kaptain
-  └── depends_on kaptain-user-scripts (encryption scripts)
-      └── downloads kaptain-encryption bundle
+brew install kaptain                        # meta package, installs everything
+  ├── depends_on kaptain-cli                # downloads kaptain-user-scripts-cli.zip
+  ├── depends_on kaptain-encryption         # downloads kaptain-user-scripts-encryption.zip
+  └── depends_on kaptain-util               # downloads kaptain-user-scripts-util.zip
+      └── downloads kaptain-user-scripts-42.zip (kaptain-42 placeholder)
 
-brew install kaptain-user-scripts
-  └── downloads kaptain-encryption bundle
-
-brew install kaptain-standalone  # hypothetical, gets everything in one
-  └── downloads full kaptain-user-scripts bundle
+brew install kaptain-user-scripts           # standalone, everything in one zip
+  └── downloads kaptain-user-scripts.zip
 ```
 
 This allows:
-- `kaptain` to install wrapper + depend on encryption scripts
-- `kaptain-user-scripts` to install just encryption (no wrapper)
-- Clean separation, no duplication
+- `kaptain` meta package to compose from individual formula packages
+- `kaptain-user-scripts` to install everything standalone in one formula
+- Individual formulas (`kaptain-cli`, `kaptain-encryption`, `kaptain-util`) installable separately
+- `kaptain-encryption` depends on `age` and `openssl`

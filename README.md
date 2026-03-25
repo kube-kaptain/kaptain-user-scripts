@@ -65,6 +65,7 @@ see the [Encryption Walkthrough](EncryptionWalkthrough.md).
 | Script                               | Description                                                |
 |--------------------------------------|------------------------------------------------------------|
 | `kaptain-keygen`                     | Generate encryption keys                                   |
+| `kaptain-rotate-key-for-secrets`     | Rotate encryption key (decrypt + re-encrypt)               |
 | `kaptain-decrypt-age`                | Decrypt secrets using age                                  |
 | `kaptain-decrypt-sha256.aes256`      | Decrypt secrets using OpenSSL AES-256 (default iterations) |
 | `kaptain-decrypt-sha256.aes256.100k` | Decrypt secrets using OpenSSL AES-256 (100k iterations)    |
@@ -81,6 +82,10 @@ Note that the encrypt/decrypt scripts all ask for a passphrase, but the usage is
 
 1. `age` must use a private key style with prefix `AGE-SECRET-KEY-` - generate with `kaptain keygen`
 2. all others use `openssl` and any key is fine - but 40+ random hex chars recommended
+
+All encrypt/decrypt leaf scripts accept `--key-file FILE` to read the passphrase from a file
+instead of prompting interactively. This is used by `kaptain-rotate-key-for-secrets` and is
+useful for scripted/automated workflows.
 
 They all encrypt from `.raw` to their respective suffix and decrypt from their suffix to `.txt`.
 

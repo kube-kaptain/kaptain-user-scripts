@@ -30,13 +30,14 @@ fi
 describe_command() {
   local cmd="$1"
   case "${cmd}" in
-    help)       echo "Show this help message" ;;
-    list)       echo "List project files and status" ;;
-    clean)      echo "Clean up input/output temporary files" ;;
-    keygen)     echo "Generate encryption keys" ;;
-    encrypt)    echo "Encrypt secrets in a directory" ;;
-    decrypt)    echo "Decrypt secrets in a directory" ;;
-    *)          echo "" ;;
+    help)                   echo "Show this help message" ;;
+    list)                   echo "List project files and status" ;;
+    clean)                  echo "Clean up input/output temporary files" ;;
+    keygen)                 echo "Generate encryption keys" ;;
+    encrypt)                echo "Encrypt secrets in a directory" ;;
+    decrypt)                echo "Decrypt secrets in a directory" ;;
+    rotate-key-for-secrets) echo "Rotate encryption key for secrets" ;;
+    *)                      echo "" ;;
   esac
 }
 
@@ -119,6 +120,23 @@ Encryption Commands:
     Decrypt encrypted files to .txt files.
     --type    Encryption type (auto-detected from file extensions if omitted)
     --dir     Target directory (default: src/secrets)
+
+  kaptain keygen [--type age|plain] [--output FILE]
+    Generate an encryption/decryption key.
+    --type    Key type: age (default) or plain
+    --output  Write key to file instead of stdout
+
+  kaptain rotate-key-for-secrets [--dir DIR] [--ask-for-key] [--new-type TYPE] [--output FILE]
+    Decrypt all secrets with old key and re-encrypt with a new key.
+    --ask-for-key  Prompt for new key instead of generating one
+    --new-type     Migrate to a different encryption type
+    --output       Where to write generated key (default: target/keygen/new.key)
+
+Default Override Environment Variables:
+  KAPTAIN_USER_SCRIPTS_SECRETS_DIR       Secrets directory (default: src/secrets)
+  KAPTAIN_USER_SCRIPTS_CONFIG_DIR        Config directory (default: src/config)
+  KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR     Manifests directory (default: src/kubernetes)
+  KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE   Encryption type (default: age)
 
 Run 'kaptain help <command>' or 'kaptain <command> --help' for command-specific options.
 
