@@ -34,16 +34,15 @@ if [[ "${SECRETS_DIR}" == /* ]]; then
   exit 1
 fi
 
-# Secrets dir must exist
+# Check local conditions - warn but don't fail, global gitignore check still runs
+CHECK_LOCAL=true
 if [[ ! -d "${SECRETS_DIR}" ]]; then
-  echo "ERROR: Secrets dir ${SECRETS_DIR}/ does not exist." >&2
-  exit 1
+  echo "WARNING: Secrets dir ${SECRETS_DIR}/ does not exist, skipping local gitignore check" >&2
+  CHECK_LOCAL=false
 fi
-
-# Must be run from repo root
 if [[ ! -d ".git" ]]; then
-  echo "ERROR: Not in repo root (.git/ not found)" >&2
-  exit 1
+  echo "WARNING: Not in repo root (.git/ not found), skipping local gitignore check" >&2
+  CHECK_LOCAL=false
 fi
 
 # Check if a pattern exists in a file
@@ -104,37 +103,39 @@ if [[ -n "${GLOBAL_IGNORE}" ]]; then
 fi
 
 # Check .gitignore files from secrets dir up to repo root
-check_dir="${SECRETS_DIR}"
-while true; do
-  gitignore="${check_dir}/.gitignore"
-  if [[ -f "${gitignore}" ]]; then
-    if [[ "${FOUND_RAW}" != "true" ]]; then
-      for pattern in "${RAW_PATTERNS[@]}"; do
-        if pattern_in_file "${gitignore}" "${pattern}"; then
-          FOUND_RAW=true
-          break
-        fi
-      done
+if [[ "${CHECK_LOCAL}" == "true" ]]; then
+  check_dir="${SECRETS_DIR}"
+  while true; do
+    gitignore="${check_dir}/.gitignore"
+    if [[ -f "${gitignore}" ]]; then
+      if [[ "${FOUND_RAW}" != "true" ]]; then
+        for pattern in "${RAW_PATTERNS[@]}"; do
+          if pattern_in_file "${gitignore}" "${pattern}"; then
+            FOUND_RAW=true
+            break
+          fi
+        done
+      fi
+
+      if [[ "${FOUND_TXT}" != "true" ]]; then
+        for pattern in "${TXT_PATTERNS[@]}"; do
+          if pattern_in_file "${gitignore}" "${pattern}"; then
+            FOUND_TXT=true
+            break
+          fi
+        done
+      fi
     fi
 
-    if [[ "${FOUND_TXT}" != "true" ]]; then
-      for pattern in "${TXT_PATTERNS[@]}"; do
-        if pattern_in_file "${gitignore}" "${pattern}"; then
-          FOUND_TXT=true
-          break
-        fi
-      done
+    # Stop at repo root (or filesystem root for absolute paths)
+    if [[ "${check_dir}" == "." || "${check_dir}" == "/" ]]; then
+      break
     fi
-  fi
 
-  # Stop at repo root (or filesystem root for absolute paths)
-  if [[ "${check_dir}" == "." || "${check_dir}" == "/" ]]; then
-    break
-  fi
-
-  # Move up one directory
-  check_dir="$(dirname "${check_dir}")"
-done
+    # Move up one directory
+    check_dir="$(dirname "${check_dir}")"
+  done
+fi
 
 # Report findings
 FAILED=false

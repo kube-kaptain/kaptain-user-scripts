@@ -158,10 +158,9 @@ teardown() {
   [[ "$output" == *"ERROR: Unknown option"* ]]
 }
 
-@test "kaptain-encryption-check-ignores: nonexistent directory fails" {
+@test "kaptain-encryption-check-ignores: nonexistent directory warns and continues" {
   run "${SCRIPTS_DIR}/kaptain-encryption-check-ignores" --dir nonexistent/path
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: Secrets dir"* ]]
+  [[ "$output" == *"WARNING: Secrets dir"* ]]
 }
 
 @test "kaptain-encryption-check-ignores: absolute path rejected" {
