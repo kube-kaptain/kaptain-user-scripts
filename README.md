@@ -92,16 +92,19 @@ cousin to read the correct directory from and init the project if needed if no
 
 ## Environment Variables
 
-Override default directory paths for all kaptain user scripts. Set these in
-your shell profile to avoid passing `--dir` on every invocation.
+Override default directory paths for all kaptain user scripts and default encrypt
+type. Set these in your shell profile to avoid passing `--dir` on every invocation.
 
-| Variable                               | Default          | Example 1                 | Example 2  | Used by                                       |
-|----------------------------------------|------------------|---------------------------|------------|-----------------------------------------------|
-| `KAPTAIN_USER_SCRIPTS_SECRETS_DIR`     | `src/secrets`    | `src/main/secrets/values` | `secrets`  | list secrets, encrypt, decrypt, clean secrets |
-| `KAPTAIN_USER_SCRIPTS_CONFIG_DIR`      | `src/config`     | N/A                       | `config`   | list config                                   |
-| `KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR`   | `src/kubernetes` | `src/main/kubernetes`     | `k8s`      | list manifests                                |
+| Variable                               | Default          | Example 1                 | Example 2       | Used by                                       |
+|----------------------------------------|------------------|---------------------------|-----------------|-----------------------------------------------|
+| `KAPTAIN_USER_SCRIPTS_SECRETS_DIR`     | `src/secrets`    | `src/main/secrets/values` | `secrets`       | list secrets, encrypt, decrypt, clean secrets |
+| `KAPTAIN_USER_SCRIPTS_CONFIG_DIR`      | `src/config`     | N/A                       | `config`        | list config                                   |
+| `KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR`   | `src/kubernetes` | `src/main/kubernetes`     | `k8s`           | list manifests                                |
+| `KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE` | `age`            | `sha256.aes256.10k`       | `sha256.aes256` | encrypt (router default), keygen              |
 
 Passing `--dir` and a value as args on any command overrides the environment variable.
+
+Passing `--type` and a valid type as args on keygen or encrypt overrides the environment variable.
 
 
 ## Installation

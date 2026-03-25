@@ -411,3 +411,58 @@ count_files() {
   [ "$status" -eq 0 ]
   [ "$(count_files "${TEST_DIR}" "*.txt")" -eq 3 ]
 }
+
+# =============================================================================
+# KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE environment variable
+# =============================================================================
+
+@test "encrypt router: KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE overrides default" {
+  # No existing encrypted files, env var should be used instead of age default
+  run bash -c "echo '${TEST_PASSPHRASE}' | KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE='sha256.aes256' '${SCRIPTS_DIR}/kaptain-encrypt' --dir '${TEST_DIR}'"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"defaulting to: sha256.aes256"* ]]
+  [ "$(count_files "${TEST_DIR}" "*.sha256.aes256")" -eq 3 ]
+}
+
+@test "encrypt router: --type flag overrides env var" {
+  run bash -c "echo '${TEST_PASSPHRASE}' | KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE='sha256.aes256.600k' '${SCRIPTS_DIR}/kaptain-encrypt' --dir '${TEST_DIR}' --type sha256.aes256"
+
+  [ "$status" -eq 0 ]
+  [ "$(count_files "${TEST_DIR}" "*.sha256.aes256")" -eq 3 ]
+  [ "$(count_files "${TEST_DIR}" "*.sha256.aes256.600k")" -eq 0 ]
+}
+
+@test "encrypt router: auto-detect overrides env var" {
+  # Create existing encrypted files with sha256.aes256
+  echo "${TEST_PASSPHRASE}" | "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256" --dir "${TEST_DIR}"
+  echo "new-secret" > "${TEST_DIR}/new-secret.raw"
+
+  # Env var says 10k, but auto-detect should find sha256.aes256
+  run bash -c "echo '${TEST_PASSPHRASE}' | KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE='sha256.aes256.10k' '${SCRIPTS_DIR}/kaptain-encrypt' --dir '${TEST_DIR}'"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Using existing encryption type: sha256.aes256"* ]]
+  [ -f "${TEST_DIR}/new-secret.sha256.aes256" ]
+}
+
+@test "keygen: KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE=age defaults to age key" {
+  run bash -c "KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE='age' '${SCRIPTS_DIR}/kaptain-keygen'"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"AGE-SECRET-KEY-"* ]]
+}
+
+@test "keygen: KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE=sha256.aes256 defaults to plain key" {
+  run bash -c "KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE='sha256.aes256' '${SCRIPTS_DIR}/kaptain-keygen'"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ [0-9a-f]{40} ]]
+}
+
+@test "keygen: --type flag overrides env var" {
+  run bash -c "KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE='sha256.aes256' '${SCRIPTS_DIR}/kaptain-keygen' --type age"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"AGE-SECRET-KEY-"* ]]
+}
