@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Kaptain CLI help
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# If arguments given, delegate to that command's --help
+if [[ $# -gt 0 ]]; then
+  target="kaptain"
+  for arg in "$@"; do
+    target="${target}-${arg}"
+  done
+  target_script="${SCRIPT_DIR}/${target}"
+  if [[ -x "${target_script}" ]]; then
+    exec "${target_script}" --help
+  else
+    echo "ERROR: Unknown command: $*" >&2
+    echo "Run 'kaptain help' for available commands." >&2
+    exit 1
+  fi
+fi
+
+# Command descriptions - add entries here as new commands are created
+# Commands without entries get listed with no description
+# Commands deliberately excluded from the map get no description (e.g., 42)
+describe_command() {
+  local cmd="$1"
+  case "${cmd}" in
+    help)                   echo "Show this help message" ;;
+    list)                   echo "List project files and status" ;;
+    clean)                  echo "Clean up input/output temporary files" ;;
+    keygen)                 echo "Generate encryption keys" ;;
+    encrypt)                echo "Encrypt secrets in a directory" ;;
+    decrypt)                echo "Decrypt secrets in a directory" ;;
+    rotate-key-for-secrets) echo "Rotate encryption key for secrets" ;;
+    *)                      echo "" ;;
+  esac
+}
+
+# Check if a script is a sub-command of another script
+# e.g., kaptain-list-secrets is a sub-command of kaptain-list
+# Walks prefix segments: kaptain-a-b-c checks kaptain-a-b, kaptain-a
+is_subcommand() {
+  local name="$1"
+  local prefix="${name%-*}"
+  while [[ "${prefix}" != "kaptain" ]]; do
+    if [[ -x "${SCRIPT_DIR}/${prefix}" ]]; then
+      return 0
+    fi
+    prefix="${prefix%-*}"
+  done
+  return 1
+}
+
+cat <<'EOF'
+Kaptain CLI - User scripts for Kaptain Kubernetes build and deployment system.
+
+Usage: kaptain <command> [options]
+
+Commands:
+EOF
+
+# Collect top-level commands
+commands=()
+for cmd in "${SCRIPT_DIR}"/kaptain-*; do
+  if [[ -x "${cmd}" ]]; then
+    name=$(basename "${cmd}")
+    if ! is_subcommand "${name}"; then
+      commands+=("${name#kaptain-}")
+    fi
+  fi
+done
+
+# Find longest command name
+max_len=0
+for short in "${commands[@]}"; do
+  if [[ ${#short} -gt ${max_len} ]]; then
+    max_len=${#short}
+  fi
+done
+pad=$((max_len + 2))
+
+# Print with aligned descriptions
+for short in "${commands[@]}"; do
+  desc=$(describe_command "${short}")
+  if [[ -n "${desc}" ]]; then
+    printf "  %-${pad}s %s\n" "${short}" "${desc}"
+  else
+    echo "  ${short}"
+  fi
+done
+echo
+
+cat <<'EOF'
+Utility Commands:
+  kaptain list manifests [--dir DIR] [--all]
+    List Kubernetes manifest files and their line counts
+
+  kaptain list config [--dir DIR] [--all]
+    List config with key/token-name on the left and value to right
+
+  kaptain list secrets [--dir DIR] [--all] [-v|--verbose]
+    List encrypted files and unencrypted raw input and extracted output files
+
+  kaptain clean secrets [--dir DIR] [--all]
+    Remove decrypted secret files (.raw, .txt)
+
+Encryption Commands:
+  kaptain encrypt [--type TYPE] [--dir DIR]
+    Encrypt .raw files to encrypted format.
+    --type    Encryption type (age, sha256.aes256, sha256.aes256.10k, etc.)
+              Default: age for new dirs, or matches existing encrypted files
+    --dir     Target directory (default: src/secrets)
+
+  kaptain decrypt [--type TYPE] [--dir DIR]
+    Decrypt encrypted files to .txt files.
+    --type    Encryption type (auto-detected from file extensions if omitted)
+    --dir     Target directory (default: src/secrets)
+
+  kaptain keygen [--type age|plain] [--output FILE]
+    Generate an encryption/decryption key.
+    --type    Key type: age (default) or plain
+    --output  Write key to file instead of stdout
+
+  kaptain rotate-key-for-secrets [--dir DIR] [--ask-for-key] [--new-type TYPE] [--output FILE]
+    Decrypt all secrets with old key and re-encrypt with a new key.
+    --ask-for-key  Prompt for new key instead of generating one
+    --new-type     Migrate to a different encryption type
+    --output       Where to write generated key (default: target/keygen/new.key)
+
+Default Override Environment Variables:
+  KAPTAIN_USER_SCRIPTS_SECRETS_DIR       Secrets directory (default: src/secrets)
+  KAPTAIN_USER_SCRIPTS_CONFIG_DIR        Config directory (default: src/config)
+  KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR     Manifests directory (default: src/kubernetes)
+  KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE   Encryption type (default: age)
+
+Run 'kaptain help <command>' or 'kaptain <command> --help' for command-specific options.
+
+Direct script access: kaptain-<command>[-<subcommand>]
+
+Use tab completion from `kaptain-` to see what's installed.
+
+EOF
+
+echo "All available kaptain scripts:"
+for cmd in "${SCRIPT_DIR}"/kaptain-*; do
+  if [[ -x "${cmd}" ]]; then
+    echo "  $(basename "${cmd}")"
+  fi
+done
+echo

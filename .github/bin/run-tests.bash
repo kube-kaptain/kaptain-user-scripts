@@ -15,6 +15,25 @@ TOTAL_TESTS=0
 PASSED_TESTS=0
 FAILED_TESTS=0
 
+# Verify flat scripts are up to date (cheap, fail fast)
+TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+echo "========================================"
+echo "Running: flat scripts staleness check"
+echo "========================================"
+
+if .github/bin/verify-flat-symlinks.bash; then
+  PASSED_TESTS=$((PASSED_TESTS + 1))
+  echo ""
+  echo "[PASSED] flat scripts up to date"
+else
+  FAILED_TESTS=$((FAILED_TESTS + 1))
+  echo ""
+  echo "[FAILED] flat scripts are stale — regenerate and commit src/flat/"
+fi
+
+echo ""
+
 # Run check-*.bash scripts
 for test_script in "${TEST_DIR}"/check-*.bash; do
   if [[ ! -f "${test_script}" ]]; then

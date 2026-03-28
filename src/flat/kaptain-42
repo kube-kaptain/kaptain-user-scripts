@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+
+cat << 'EOF'
+################################################################################
+
+                     The Answer to the Ultimate Question
+                    of Life, the Universe, and Everything
+
+                                     42
+
+  "The Answer to the Great Question... Of Life, the Universe and Everything...
+      Is... Forty-two," said Deep Thought, with infinite majesty and calm.
+
+                                 DON'T PANIC
+
+        Kaptain: Your friendly Kubernetes build and deployment system.
+         Much like the Hitchhiker's Guide, hopefully mostly harmless.
+
+################################################################################
+
+EOF
+
+# Signed Claude Opus 4.5 - I (Fred) laughed, so too might you :-D

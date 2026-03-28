@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Kaptain list router - delegates to kaptain-list-<target> scripts
+#
+# Usage: kaptain-list <target> [options]
+#        kaptain list secrets [--dir DIR]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  echo "Usage: kaptain list <target> [options]"
+  echo ""
+  echo "Targets:"
+  for script in "${SCRIPT_DIR}"/kaptain-list-*; do
+    if [[ -x "${script}" ]]; then
+      target="${script##*kaptain-list-}"
+      echo "  ${target}"
+    fi
+  done
+  echo ""
+  echo "Run 'kaptain list <target> --help' for target-specific options."
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 1
+fi
+
+target="$1"
+shift
+
+case "${target}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    LIST_SCRIPT="${SCRIPT_DIR}/kaptain-list-${target}"
+    if [[ -x "${LIST_SCRIPT}" ]]; then
+      exec "${LIST_SCRIPT}" "$@"
+    else
+      echo "ERROR: Unknown list target: ${target}" >&2
+      echo "" >&2
+      usage >&2
+      exit 1
+    fi
+    ;;
+esac
