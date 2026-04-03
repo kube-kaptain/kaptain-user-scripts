@@ -15,6 +15,7 @@ setup() {
   cp src/scripts/cli/* "${SCRIPTS_DIR}/"
   cp src/scripts/encryption/* "${SCRIPTS_DIR}/"
   cp src/scripts/util/* "${SCRIPTS_DIR}/"
+  cp src/scripts/build/* "${SCRIPTS_DIR}/"
 }
 
 # kaptain main router tests

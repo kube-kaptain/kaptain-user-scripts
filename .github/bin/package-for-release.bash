@@ -35,12 +35,14 @@ mkdir -p "${PACKAGE_DIR}/cli/scripts"
 mkdir -p "${PACKAGE_DIR}/encryption/scripts"
 mkdir -p "${PACKAGE_DIR}/util/scripts"
 mkdir -p "${PACKAGE_DIR}/all/scripts"
+mkdir -p "${PACKAGE_DIR}/build/scripts"
 mkdir -p "${PACKAGE_DIR}/42/scripts"
 
 echo "Copying all scripts..."
 cp "${SCRIPTS}/cli/"* "${PACKAGE_DIR}/all/scripts/"
 cp "${SCRIPTS}/encryption/"* "${PACKAGE_DIR}/all/scripts/"
 cp "${SCRIPTS}/util/"* "${PACKAGE_DIR}/all/scripts/"
+cp "${SCRIPTS}/build/"* "${PACKAGE_DIR}/all/scripts/"
 cd "${PACKAGE_DIR}/all"
 zip -r kaptain-user-scripts.zip scripts/
 cd -
@@ -73,6 +75,14 @@ zip -r kaptain-user-scripts-util.zip scripts/
 cd -
 cp "${PACKAGE_DIR}/util/kaptain-user-scripts-util.zip" "${DOCKER_CONTEXT_SUB_PATH}/kaptain-user-scripts-util-${VERSION}.zip"
 echo "  Created: kaptain-user-scripts-util.zip"
+
+echo "Copying build scripts..."
+cp "${SCRIPTS}/build/"* "${PACKAGE_DIR}/build/scripts/"
+cd "${PACKAGE_DIR}/build"
+zip -r kaptain-user-scripts-build.zip scripts/
+cd -
+cp "${PACKAGE_DIR}/build/kaptain-user-scripts-build.zip" "${DOCKER_CONTEXT_SUB_PATH}/kaptain-user-scripts-build-${VERSION}.zip"
+echo "  Created: kaptain-user-scripts-build.zip"
 
 echo "Copying 42 script..."
 cp "${SCRIPTS}/cli/kaptain-42" "${PACKAGE_DIR}/42/scripts/"
