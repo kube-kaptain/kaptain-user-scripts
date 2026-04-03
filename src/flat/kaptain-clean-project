@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Clean build output directories for a kaptain project.
+# Removes the output directory and kaptainpm/ directory.
+# Run from project root.
+#
+# Usage: kaptain-clean-project [--dir DIR] [-h|--help]
+set -euo pipefail
+
+OUTPUT_DIR="${KAPTAIN_USER_SCRIPTS_OUTPUT_SUB_PATH:-kaptain-out}"
+
+usage() {
+  echo "Usage: kaptain clean project [--dir DIR] [-h|--help]"
+  echo ""
+  echo "Remove build output directories."
+  echo ""
+  echo "Removes the output directory (default: kaptain-out/) and kaptainpm/ directory."
+  echo "Uses rm -rf for the output directory (may contain .git dirs from tests)"
+  echo "and rm -r for kaptainpm/."
+  echo ""
+  echo "Options:"
+  echo "  --dir DIR     Output directory to clean (default: kaptain-out)"
+  echo "  -h, --help    Show this help"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --dir requires a value" >&2
+        usage >&2
+        exit 1
+      fi
+      if [[ "$2" == /* ]]; then
+        echo "ERROR: --dir must be a relative path" >&2
+        exit 1
+      fi
+      # No directory existence check — clean is a no-op for missing dirs
+      OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+rm -rf "${OUTPUT_DIR}" 2>/dev/null
+rm -r "kaptainpm" 2>/dev/null || true
+echo "Cleaned kaptainpm/ and ${OUTPUT_DIR}/"

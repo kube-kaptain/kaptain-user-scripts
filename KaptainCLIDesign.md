@@ -35,11 +35,12 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 6. **Explicit override**: `--dir secrets`
 
 
-## Build Subcommand (future)
+## Build Subcommand
 
-- Reads `KaptainPM.yaml` from current directory
-- Extracts `kind` field, validates supported type - clear error if not
-- Dispatches to appropriate build script based on kind (docker, manifests, etc.)
+- Checks `KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT` is set and valid
+- Resolves `kind` from `KaptainPM.yaml` (project root), cached `kaptainpm/final/KaptainPM.yaml`, or by running `kaptain-init`
+- Cleans build output (always)
+- Dispatches to `src/scripts/reference/<kind>` in the build scripts repo
 
 
 ## Script Structure
@@ -50,12 +51,11 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 ### Subcommand Dispatchers
 - `kaptain-decrypt` - detects type, delegates
 - `kaptain-encrypt` - detects/defaults type, delegates
-- `kaptain-build` - future, see below
+- `kaptain-build`   - resolves kind, delegates to build scripts repo
 
-### kaptain-build
-
-* reads KaptainPM.yaml, delegates to reference scripts in build scripts package
-* need to think about how to install these - on path with brew or dynamically via docker use some user cache mechanism on a standard path 
+### Build Scripts
+- `kaptain-build`
+- `kaptain-clean-project`
 
 ### Utility Scripts
 - `kaptain-list-config`
@@ -84,21 +84,18 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 - Add homebrew-kaptain - make it depend on homebrew-kaptain-user-scripts - and maybe other things
 - Add dependency from user scripts to age and openssl - should be enough?
 
-## Future
-
-- [ ] Create `kaptain-build` dispatcher
-
 ## Release Packaging
 
 Five bundles produced from kaptain-user-scripts repo:
 
-| Bundle                              | Contents                                                  |
-|-------------------------------------|-----------------------------------------------------------|
-| `kaptain-user-scripts.zip`          | All scripts (cli + encryption + util)                     |
-| `kaptain-user-scripts-cli.zip`      | CLI scripts only (kaptain, kaptain-help, kaptain-clean, kaptain-list) |
-| `kaptain-user-scripts-encryption.zip` | Encryption scripts only                                 |
-| `kaptain-user-scripts-util.zip`     | Utility scripts (list-secrets, clean-secrets, etc.)       |
-| `kaptain-user-scripts-42.zip`       | Meta package placeholder for brew                         |
+| Bundle                                | Contents                                                              |
+|---------------------------------------|-----------------------------------------------------------------------|
+| `kaptain-user-scripts.zip`            | All scripts (cli + encryption + util)                                 |
+| `kaptain-user-scripts-cli.zip`        | CLI scripts only (kaptain, kaptain-help, kaptain-clean, kaptain-list) |
+| `kaptain-user-scripts-encryption.zip` | Encryption scripts only                                               |
+| `kaptain-user-scripts-util.zip`       | Utility scripts (list-secrets, clean-secrets, etc.)                   |
+| `kaptain-user-scripts-build.zip`      | Build scripts only (kaptain-build, kaptain-clean-project)             |
+| `kaptain-user-scripts-42.zip`         | Meta package placeholder for brew                                     |
 
 ### Dependency Structure
 

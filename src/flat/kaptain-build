@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Build a kaptain project locally.
+# Resolves the project kind, cleans build output, inits if needed,
+# then delegates to the appropriate reference build script.
+# Run from project root.
+#
+# Usage: kaptain-build [-h|--help]
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  echo "Usage: kaptain build [-h|--help]"
+  echo ""
+  echo "Build a kaptain project locally."
+  echo ""
+  echo "Reads KaptainPM.yaml to determine the project kind, cleans build output,"
+  echo "runs kaptain-init if needed, and delegates to the reference build script."
+  echo ""
+  echo "Requires KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set."
+  echo ""
+  echo "Options:"
+  echo "  -h, --help    Show this help"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Step 1: Check build scripts repo root
+if [[ -z "${KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT:-}" ]]; then
+  echo "ERROR: KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT is not set." >&2
+  echo "" >&2
+  echo "To use kaptain build, clone the build scripts repo and set this variable:" >&2
+  echo "" >&2
+  echo "  git clone <build-scripts-repo-url>" >&2
+  echo "  cd <build-scripts-repo>" >&2
+  echo "  git checkout <version>" >&2
+  echo "  export KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT=\"\$(pwd)\"" >&2
+  echo "" >&2
+  echo "Add the export to your shell profile (.bashrc, .zshrc, etc.) to persist it." >&2
+  exit 1
+fi
+
+BUILD_ROOT="${KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT}"
+
+# Step 2: Verify we're in a project we can build
+if [[ ! -f "KaptainPM.yaml" ]]; then
+  echo "ERROR: Cannot build a project that does not have a KaptainPM.yaml file!"
+  exit 1
+fi
+
+# Step 3: Validate build scripts repo structure
+if [[ ! -d "${BUILD_ROOT}" ]]; then
+  echo "ERROR: Build scripts repo root does not exist: ${BUILD_ROOT}" >&2
+  exit 1
+fi
+
+if [[ ! -d "${BUILD_ROOT}/src" ]]; then
+  echo "ERROR: Build scripts repo missing src/ directory: ${BUILD_ROOT}/src/" >&2
+  exit 1
+fi
+
+if [[ ! -d "${BUILD_ROOT}/src/scripts" ]]; then
+  echo "ERROR: Build scripts repo missing src/scripts directory: ${BUILD_ROOT}/src/scripts" >&2
+  exit 1
+fi
+
+if [[ ! -d "${BUILD_ROOT}/src/schemas" ]]; then
+  echo "ERROR: Build scripts repo missing src/schemas directory: ${BUILD_ROOT}/src/schemas" >&2
+  exit 1
+fi
+
+# Step 4: Check yq is available
+if ! command -v yq &> /dev/null; then
+  echo "ERROR: yq is required but not found on PATH" >&2
+  exit 1
+fi
+
+# Step 5: Resolve kind — save before clean wipes kaptainpm/
+KIND=$(yq -r '.kind // ""' "KaptainPM.yaml")
+
+# Step 6: Display it if found
+if [[ -n "${KIND}" ]]; then
+  echo "Project kind from KaptainPM.yaml: ${KIND}"
+fi
+
+# Try cached kaptainpm/final/KaptainPM.yaml if no kind found
+if [[ -z "${KIND}" && -f "kaptainpm/final/KaptainPM.yaml" ]]; then
+  if [[ "kaptainpm/final/KaptainPM.yaml" -nt "KaptainPM.yaml" ]]; then
+    KIND=$(yq -r '.kind // ""' "kaptainpm/final/KaptainPM.yaml")
+    if [[ -n "${KIND}" ]]; then
+      echo "WARN: Using cached build kind to select reference script! Remove kaptainpm/ and force an update if wrong." >&2
+      echo "Project kind from kaptainpm/final/KaptainPM.yaml: ${KIND}"
+    fi
+  fi
+fi
+
+# Step 7: If no kind found, run kaptain-init to resolve it
+if [[ -z "${KIND}" ]]; then
+  INIT_SCRIPT="${BUILD_ROOT}/src/scripts/main/kaptain-init"
+  if [[ ! -x "${INIT_SCRIPT}" ]]; then
+    echo "ERROR: kaptain-init not found or not executable: ${INIT_SCRIPT}" >&2
+    exit 1
+  fi
+
+  BUILD_PLATFORM=local "${INIT_SCRIPT}"
+
+  if [[ ! -f "kaptainpm/final/KaptainPM.yaml" ]]; then
+    echo "ERROR: kaptain-init did not produce kaptainpm/final/KaptainPM.yaml" >&2
+    exit 1
+  fi
+
+  KIND=$(yq -r '.kind // ""' "kaptainpm/final/KaptainPM.yaml")
+
+  if [[ -n "${KIND}" ]]; then
+    echo "Project kind from kaptainpm/final/KaptainPM.yaml: ${KIND}"
+  else
+    echo "ERROR: No kind found in kaptainpm/final/KaptainPM.yaml after init" >&2
+    exit 1
+  fi
+fi
+
+# Step 8: Clean (always)
+"${SCRIPT_DIR}/kaptain-clean-project"
+
+# Step 9: Execute reference build script
+REF_SCRIPT="${BUILD_ROOT}/src/scripts/reference/${KIND}"
+if [[ ! -x "${REF_SCRIPT}" ]]; then
+  echo "ERROR: Reference build script not found or not executable for kind '${KIND}': ${REF_SCRIPT}" >&2
+  exit 1
+fi
+
+exec "${REF_SCRIPT}"

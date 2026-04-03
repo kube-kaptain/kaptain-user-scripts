@@ -37,6 +37,8 @@ describe_command() {
     encrypt)                echo "Encrypt secrets in a directory" ;;
     decrypt)                echo "Decrypt secrets in a directory" ;;
     rotate-key-for-secrets) echo "Rotate encryption key for secrets" ;;
+    build)                  echo "Build a kaptain project locally" ;;
+    clean-project)          echo "Clean build output directories" ;;
     *)                      echo "" ;;
   esac
 }
@@ -132,11 +134,23 @@ Encryption Commands:
     --new-type     Migrate to a different encryption type
     --output       Where to write generated key (default: target/keygen/new.key)
 
+Build Commands:
+  kaptain build
+    Build a kaptain project locally.
+    Reads KaptainPM.yaml, resolves kind, and delegates to reference build script.
+    Requires KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set.
+
+  kaptain clean project [--dir DIR]
+    Remove build output directories (kaptain-out/ and kaptainpm/).
+    --dir     Output directory to clean (default: kaptain-out)
+
 Default Override Environment Variables:
-  KAPTAIN_USER_SCRIPTS_SECRETS_DIR       Secrets directory (default: src/secrets)
-  KAPTAIN_USER_SCRIPTS_CONFIG_DIR        Config directory (default: src/config)
-  KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR     Manifests directory (default: src/kubernetes)
-  KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE   Encryption type (default: age)
+  KAPTAIN_USER_SCRIPTS_SECRETS_DIR              Secrets directory (default: src/secrets)
+  KAPTAIN_USER_SCRIPTS_CONFIG_DIR               Config directory (default: src/config)
+  KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR            Manifests directory (default: src/kubernetes)
+  KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE          Encryption type (default: age)
+  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT  Build scripts repo location (required for build)
+  KAPTAIN_USER_SCRIPTS_OUTPUT_SUB_PATH          Build output directory (default: kaptain-out)
 
 Run 'kaptain help <command>' or 'kaptain <command> --help' for command-specific options.
 

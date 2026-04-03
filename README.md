@@ -78,6 +78,13 @@ see the [Encryption Walkthrough](EncryptionWalkthrough.md).
 | `kaptain-encrypt-sha256.aes256.600k` | Encrypt secrets using OpenSSL AES-256 (600k iterations)    |
 | `kaptain-encryption-check-ignores`   | Check gitignore covers secret files                        |
 
+### Build
+
+| Script                  | Description                       |
+|-------------------------|-----------------------------------|
+| `kaptain-build`         | Build a kaptain project locally   |
+| `kaptain-clean-project` | Clean build output directories    |
+
 Note that the encrypt/decrypt scripts all ask for a passphrase, but the usage is slightly different:
 
 1. `age` must use a private key style with prefix `AGE-SECRET-KEY-` - generate with `kaptain keygen`
@@ -100,12 +107,14 @@ cousin to read the correct directory from and init the project if needed if no
 Override default directory paths for all kaptain user scripts and default encrypt
 type. Set these in your shell profile to avoid passing `--dir` on every invocation.
 
-| Variable                               | Default          | Example 1                 | Example 2       | Used by                                       |
-|----------------------------------------|------------------|---------------------------|-----------------|-----------------------------------------------|
-| `KAPTAIN_USER_SCRIPTS_SECRETS_DIR`     | `src/secrets`    | `src/main/secrets/values` | `secrets`       | list secrets, encrypt, decrypt, clean secrets |
-| `KAPTAIN_USER_SCRIPTS_CONFIG_DIR`      | `src/config`     | N/A                       | `config`        | list config                                   |
-| `KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR`   | `src/kubernetes` | `src/main/kubernetes`     | `k8s`           | list manifests                                |
-| `KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE` | `age`            | `sha256.aes256`           | `sha256.aes256` | encrypt (router default), keygen              |
+| Variable                                       | Default          | Example 1                                           | Example 2                                          | Used by                                       |
+|------------------------------------------------|------------------|-----------------------------------------------------|----------------------------------------------------|-----------------------------------------------|
+| `KAPTAIN_USER_SCRIPTS_SECRETS_DIR`             | `src/secrets`    | `src/main/secrets/values`                           | `secrets`                                          | list secrets, encrypt, decrypt, clean secrets |
+| `KAPTAIN_USER_SCRIPTS_CONFIG_DIR`              | `src/config`     | N/A                                                 | `config`                                           | list config                                   |
+| `KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR`           | `src/kubernetes` | `src/main/kubernetes`                               | `k8s`                                              | list manifests                                |
+| `KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE`         | `age`            | `sha256.aes256`                                     | `sha256.aes256`                                    | encrypt (router default), keygen              |
+| `KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT` | (none)           | `~/projects/kaptain/buildon/buildon-github-actions` | `~/projects/kaptain/kaptain/kaptain-build-scripts` | build                                         |
+| `KAPTAIN_USER_SCRIPTS_OUTPUT_SUB_PATH`         | `kaptain-out`    | `target`                                            | `output`                                           | build, clean project                          |
 
 Passing `--dir` and a value as args on any command overrides the environment variable.
 
