@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Kaptain setup router - delegates to kaptain-setup-<target> scripts
+#
+# Usage: kaptain-setup <target> [options]
+#        kaptain setup brew [--copy-fred] [--apps-in-home]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  echo "Usage: kaptain setup <target> [options]"
+  echo ""
+  echo "Targets:"
+  for script in "${SCRIPT_DIR}"/kaptain-setup-*; do
+    if [[ -x "${script}" ]]; then
+      target="${script##*kaptain-setup-}"
+      echo "  ${target}"
+    fi
+  done
+  echo ""
+  echo "Run 'kaptain setup <target> --help' for target-specific options."
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 1
+fi
+
+target="$1"
+shift
+
+case "${target}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    SETUP_SCRIPT="${SCRIPT_DIR}/kaptain-setup-${target}"
+    if [[ -x "${SETUP_SCRIPT}" ]]; then
+      exec "${SETUP_SCRIPT}" "$@"
+    else
+      echo "ERROR: Unknown setup target: ${target}" >&2
+      echo "" >&2
+      usage >&2
+      exit 1
+    fi
+    ;;
+esac
