@@ -36,6 +36,7 @@ _kaptain_flags() {
     kaptain-clean-project)              echo "--dir --help -h" ;;
     kaptain-clean)                      echo "--help -h" ;;
     kaptain-list)                       echo "--help -h" ;;
+    kaptain-setup)                      echo "--help -h" ;;
     kaptain-decrypt)                    echo "--dir --help --type -h" ;;
     kaptain-decrypt-age)                echo "--dir --help --key-file -h" ;;
     kaptain-decrypt-sha256.aes256)      echo "--dir --help --key-file -h" ;;
@@ -55,6 +56,7 @@ _kaptain_flags() {
     kaptain-list-config)                echo "--all --dir --help -h" ;;
     kaptain-list-manifests)             echo "--all --dir --help -h" ;;
     kaptain-list-secrets)               echo "--all --dir --help --verbose -h -v" ;;
+    kaptain-setup-brew)                 echo "--apps-in-home --copy-fred --help -h" ;;
   esac
 }
 _kaptain_type_values="age sha256.aes256 sha256.aes256.100k sha256.aes256.10k sha256.aes256.600k"

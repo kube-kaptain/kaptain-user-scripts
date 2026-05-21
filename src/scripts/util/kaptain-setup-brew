@@ -1,0 +1,1123 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Interactive Homebrew setup for Kaptain users on macOS (or Linux with brew).
+# Walks the user through suggest-ask-remember prompts, prints a plan, confirms
+# once, then executes.
+#
+# Usage: kaptain setup brew [--copy-fred] [--apps-in-home] [-h|--help]
+
+set -euo pipefail
+
+# Decision-tracking variables (DO_CORE, DO_HELM, etc.) are assigned per ask
+# for clarity even when only the plan_formulae/plan_casks side-effect is read
+# later. Suppress unused-variable warnings for these.
+# shellcheck disable=SC2034
+
+# Flags
+COPY_FRED=false
+APPS_IN_HOME=false
+
+# Snapshots
+FORMULAE_INSTALLED=""
+CASKS_INSTALLED=""
+
+# Plan accumulators (space-separated for bash 3.2 friendliness)
+FORMULAE_TO_INSTALL=""
+CASKS_TO_INSTALL=""
+FORMULAE_SKIPPED=""
+CASKS_SKIPPED=""
+
+# Profile block lines (indexed array)
+PROFILE_LINES=()
+
+# Decisions populated by ask_* functions
+APPS_TO_HOME=false
+DO_PROFILE_BLOCK=true
+DO_CORE=true
+DO_BRANCHOUT=true
+DO_BUILD_SCRIPTS=true
+NEEDS_BUILD_CLONE=false
+DO_HELM=true
+DO_SHELL_DEV=false
+DO_GITG=false
+DO_KDIFF3=false
+DO_BASH_COMPLETION=true
+RUNTIME_CHOICE="none"
+PODMAN_ROOTFUL=true
+PODMAN_DESKTOP=true
+PODMAN_NEEDS_MACHINE_SETUP=false
+BUILD_SCRIPTS_PATH=""
+CLAUDE_MARKETPLACES_LIST=""
+CLAUDE_PLUGINS_LIST=""
+CLAUDE_MARKETPLACES_TO_ADD=""
+CLAUDE_PLUGINS_TO_INSTALL=""
+DO_GH=true
+DO_CLAUDE_CODE=true
+DO_CLAUDE_PLUGINS=true
+DO_TESSL=false
+DO_SNYK=false
+
+# Detected
+SHELL_KIND="other"
+PROFILE_FILE=""
+BASH_MAJOR=0
+BASH_COMPLETION_PKG=""
+
+usage() {
+  cat <<'EOF'
+Usage: kaptain setup brew [--copy-fred] [--apps-in-home] [-h|--help]
+
+Interactive Homebrew setup for Kaptain users. Walks through suggest-ask-remember
+prompts grouped by purpose, prints a plan, confirms once, then executes.
+
+Options:
+  --copy-fred     Accept the default answer for every prompt that has a default.
+                  Does not answer the apps-location prompt (section 1), which
+                  always requires an explicit choice unless --apps-in-home is
+                  also passed.
+  --apps-in-home  Use ~/Applications for cask installs (sets HOMEBREW_CASK_OPTS).
+                  Skips the apps-location prompt.
+  -h, --help      Show this help.
+EOF
+}
+
+# Parse flags
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --copy-fred)
+      COPY_FRED=true
+      shift
+      ;;
+    --apps-in-home)
+      APPS_IN_HOME=true
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+# ---------- helpers ----------
+
+say() { printf '%s\n' "$@"; }
+say_blank() { echo ""; }
+
+say_section() {
+  echo ""
+  echo "=== $1 ==="
+  echo ""
+}
+
+list_contains() {
+  local needle="$1"
+  local haystack="$2"
+  case " ${haystack} " in
+    *" ${needle} "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+list_add() {
+  local val="$1"
+  local list="$2"
+  if [[ -z "${list}" ]]; then
+    printf '%s' "${val}"
+  else
+    printf '%s %s' "${list}" "${val}"
+  fi
+}
+
+# ask_yn PROMPT DEFAULT [COPY_FRED_ANSWER]
+# DEFAULT is y or n. Returns 0 for yes, 1 for no.
+# Under --copy-fred, returns COPY_FRED_ANSWER if given, otherwise DEFAULT.
+# Use the override for prompts where the interactive default should be n but
+# Fred's setup wants y (e.g. shell-dev tooling).
+ask_yn() {
+  local prompt="$1"
+  local default="$2"
+  local copy_fred_answer="${3:-${default}}"
+  local marker
+  if [[ "${default}" == "y" ]]; then
+    marker="[Y/n]"
+  else
+    marker="[y/N]"
+  fi
+
+  if [[ "${COPY_FRED}" == "true" ]]; then
+    say "${prompt} ${marker} ${copy_fred_answer} (auto via --copy-fred)"
+    if [[ "${copy_fred_answer}" == "y" ]]; then
+      return 0
+    fi
+    return 1
+  fi
+
+  local answer=""
+  read -r -p "${prompt} ${marker} " answer
+  if [[ -z "${answer}" ]]; then
+    answer="${default}"
+  fi
+  case "${answer}" in
+    y|Y|yes|YES|Yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ask_required_yn PROMPT
+# Re-prompts until valid y or n. Never auto-answered.
+ask_required_yn() {
+  local prompt="$1"
+  local answer=""
+  while :; do
+    read -r -p "${prompt} [y/n] " answer
+    case "${answer}" in
+      y|Y|yes|YES|Yes) return 0 ;;
+      n|N|no|NO|No) return 1 ;;
+      *) echo "Please answer y or n." ;;
+    esac
+  done
+}
+
+# ask_menu PROMPT DEFAULT_INDEX OPTION1 OPTION2 ...
+# Echoes the selected index (1-based) to stdout.
+# Under --copy-fred, returns DEFAULT_INDEX without prompting.
+# All UI output goes to stderr so the caller can capture only the answer via $().
+ask_menu() {
+  local prompt="$1"
+  local default_index="$2"
+  shift 2
+  local options=("$@")
+  local n=${#options[@]}
+
+  echo "" >&2
+  printf '%s\n' "${prompt}" >&2
+  local i=1
+  for opt in "${options[@]}"; do
+    printf '  %d) %s\n' "${i}" "${opt}" >&2
+    i=$((i + 1))
+  done
+
+  if [[ "${COPY_FRED}" == "true" ]]; then
+    printf '[%s] %s (auto via --copy-fred)\n' "${default_index}" "${default_index}" >&2
+    echo "${default_index}"
+    return
+  fi
+
+  local answer=""
+  while :; do
+    read -r -p "[${default_index}] " answer
+    if [[ -z "${answer}" ]]; then
+      answer="${default_index}"
+    fi
+    if [[ "${answer}" =~ ^[0-9]+$ ]] && (( answer >= 1 )) && (( answer <= n )); then
+      echo "${answer}"
+      return
+    fi
+    echo "Please pick a number between 1 and ${n}." >&2
+  done
+}
+
+# ---------- preflight ----------
+
+preflight() {
+  if ! command -v brew >/dev/null 2>&1; then
+    cat >&2 <<'EOF'
+ERROR: Homebrew (brew) is not installed.
+
+Install it with:
+
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+Then re-run this script.
+EOF
+    exit 1
+  fi
+
+  detect_caller_shell
+  resolve_profile_file
+  detect_bash_version
+  snapshot_installed
+}
+
+# Detect the shell that invoked this script. Because the kaptain and
+# kaptain-setup routers both use exec rather than fork, $PPID points to the
+# user's actual interactive shell, not an intermediate wrapper. This is more
+# accurate than $SHELL, which can be stale if the user has not run chsh.
+detect_caller_shell() {
+  local pcomm=""
+  pcomm=$(ps -p "$PPID" -o comm= 2>/dev/null | tr -d ' ' || true)
+  pcomm="${pcomm#-}"        # strip leading dash for login shells (-bash, -zsh)
+  pcomm="${pcomm##*/}"      # strip any leading path
+  case "${pcomm}" in
+    bash) SHELL_KIND="bash"; return ;;
+    zsh)  SHELL_KIND="zsh";  return ;;
+  esac
+  # Fallback to $SHELL if the parent process name was unrecognised
+  case "${SHELL:-}" in
+    */bash) SHELL_KIND="bash" ;;
+    */zsh) SHELL_KIND="zsh" ;;
+    *) SHELL_KIND="other" ;;
+  esac
+}
+
+resolve_profile_file() {
+  local candidates=""
+  case "${SHELL_KIND}" in
+    bash) candidates="${HOME}/.bash_profile ${HOME}/.profile" ;;
+    zsh) candidates="${HOME}/.zshrc ${HOME}/.zprofile ${HOME}/.profile" ;;
+    *) candidates="${HOME}/.profile" ;;
+  esac
+
+  local existing=""
+  local c
+  for c in ${candidates}; do
+    if [[ -f "${c}" ]]; then
+      existing="${existing} ${c}"
+    fi
+  done
+  existing="${existing# }"
+
+  if [[ -z "${existing}" ]]; then
+    PROFILE_FILE="${candidates%% *}"
+    return
+  fi
+
+  local count=0
+  for c in ${existing}; do
+    count=$((count + 1))
+  done
+
+  if [[ ${count} -eq 1 ]]; then
+    PROFILE_FILE="${existing}"
+    return
+  fi
+
+  # Multiple candidates - ask
+  say_blank
+  say "Multiple shell profile files exist. Which should I write to?"
+  local i=1
+  local first=""
+  for c in ${existing}; do
+    say "  ${i}) ${c}"
+    if [[ -z "${first}" ]]; then
+      first="${c}"
+    fi
+    i=$((i + 1))
+  done
+
+  if [[ "${COPY_FRED}" == "true" ]]; then
+    PROFILE_FILE="${first}"
+    say "[1] 1 (auto via --copy-fred)"
+    return
+  fi
+
+  local answer=""
+  while :; do
+    read -r -p "[1] " answer
+    if [[ -z "${answer}" ]]; then
+      answer=1
+    fi
+    if [[ "${answer}" =~ ^[0-9]+$ ]] && (( answer >= 1 )) && (( answer <= count )); then
+      break
+    fi
+    say "Please pick a number between 1 and ${count}."
+  done
+
+  i=1
+  for c in ${existing}; do
+    if [[ "${i}" == "${answer}" ]]; then
+      PROFILE_FILE="${c}"
+      return
+    fi
+    i=$((i + 1))
+  done
+  PROFILE_FILE="${first}"
+}
+
+detect_bash_version() {
+  # This script's shebang is bash, so $BASH_VERSION is always set and reflects
+  # the bash actually executing the script. That is the right reference point
+  # for picking bash-completion vs bash-completion@2 (@2 requires bash 4.1+).
+  if [[ -n "${BASH_VERSION:-}" ]]; then
+    BASH_MAJOR="${BASH_VERSION%%.*}"
+  fi
+  if (( BASH_MAJOR >= 4 )); then
+    BASH_COMPLETION_PKG="bash-completion@2"
+  else
+    BASH_COMPLETION_PKG="bash-completion"
+  fi
+}
+
+snapshot_installed() {
+  # 'brew list --formula' lists every installed formula including ones pulled
+  # in as dependencies. Using 'brew leaves --installed-on-request' would miss
+  # formulae like podman when something like podman-compose depends on it.
+  FORMULAE_INSTALLED=$(brew list --formula 2>/dev/null | tr '\n' ' ' || true)
+  CASKS_INSTALLED=$(brew list --cask 2>/dev/null | tr '\n' ' ' || true)
+  if command -v claude >/dev/null 2>&1; then
+    CLAUDE_MARKETPLACES_LIST=$(claude plugin marketplace list 2>/dev/null || true)
+    CLAUDE_PLUGINS_LIST=$(claude plugin list 2>/dev/null || true)
+  fi
+}
+
+# Substring search in claude's multi-line list output. The marketplace 'list'
+# command prints Source: GitHub (Org/repo-name) lines, which contain the full
+# org/repo string we use with 'marketplace add'. Plugin list prints
+# 'name@marketplace' literally. Substring match handles both.
+claude_marketplace_present() {
+  case "${CLAUDE_MARKETPLACES_LIST}" in
+    *"$1"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+claude_plugin_present() {
+  case "${CLAUDE_PLUGINS_LIST}" in
+    *"$1"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# plan_formulae PKG [PKG...]
+# Each PKG can be plain name or tap-qualified (e.g. tesslio/tap/tessl).
+# brew leaves may emit either form for tap-qualified packages, so match both.
+plan_formulae() {
+  local pkg short
+  for pkg in "$@"; do
+    short="${pkg##*/}"
+    if list_contains "${pkg}" "${FORMULAE_INSTALLED}" \
+        || list_contains "${short}" "${FORMULAE_INSTALLED}"; then
+      FORMULAE_SKIPPED=$(list_add "${pkg}" "${FORMULAE_SKIPPED}")
+    else
+      FORMULAE_TO_INSTALL=$(list_add "${pkg}" "${FORMULAE_TO_INSTALL}")
+    fi
+  done
+}
+
+plan_casks() {
+  local pkg
+  for pkg in "$@"; do
+    if list_contains "${pkg}" "${CASKS_INSTALLED}"; then
+      CASKS_SKIPPED=$(list_add "${pkg}" "${CASKS_SKIPPED}")
+    else
+      CASKS_TO_INSTALL=$(list_add "${pkg}" "${CASKS_TO_INSTALL}")
+    fi
+  done
+}
+
+# ---------- asks ----------
+
+ask_section_1_apps() {
+  say_section "1. Apps install location"
+  if [[ "${APPS_IN_HOME}" == "true" ]]; then
+    APPS_TO_HOME=true
+    say "Using ~/Applications (via --apps-in-home flag)."
+    return
+  fi
+  if [[ "${COPY_FRED}" == "true" ]]; then
+    APPS_TO_HOME=false
+    say "Leaving brew default /Applications in place (--copy-fred skips this prompt)."
+    return
+  fi
+  cat <<'EOF'
+Sets HOMEBREW_CASK_OPTS=--appdir=$HOME/Applications, which sends future cask
+installs to ~/Applications instead of /Applications.
+
+On corporate machines under MDM, writes to /Applications often require admin
+rights, which can make 'brew install --cask ...' fail. Installing into your
+home directory sidesteps that and lets the install succeed.
+
+Whether the app then runs is a separate question. MDM policies on app
+notarisation, gatekeeper, or executable signing can still block launch from
+any location. This setting only changes the install destination, not the
+run-time permissions.
+EOF
+  say_blank
+  if ask_required_yn "Use ~/Applications for cask installs?"; then
+    APPS_TO_HOME=true
+  else
+    APPS_TO_HOME=false
+  fi
+}
+
+ask_section_2_profile() {
+  say_section "2. Managed profile block"
+  cat <<EOF
+Adds homebrew quiet settings, bash deprecation silence (if bash), and a safe
+bash_completion source line. Written as a marked, idempotent block in:
+  ${PROFILE_FILE}
+EOF
+  say_blank
+  if ask_yn "Write managed profile block?" "y"; then
+    DO_PROFILE_BLOCK=true
+  else
+    DO_PROFILE_BLOCK=false
+  fi
+}
+
+ask_section_3_core() {
+  say_section "3. Core packages (required to build Kaptain projects)"
+  cat <<'EOF'
+These packages are required to build Kaptain projects locally. Only skip if
+you provide them another way or do not need to build Kaptain projects locally.
+
+  yq, jq, check-jsonschema, skopeo
+EOF
+  say_blank
+  if ask_yn "Install core packages?" "y"; then
+    DO_CORE=true
+    plan_formulae yq jq check-jsonschema skopeo
+  else
+    DO_CORE=false
+  fi
+}
+
+ask_section_4_branchout() {
+  say_section "4. Branchout"
+  cat <<'EOF'
+Manage branchout repo trees under ~/projects/. Recommended.
+EOF
+  say_blank
+  if ask_yn "Install Branchout?" "y"; then
+    DO_BRANCHOUT=true
+    plan_formulae branchout/branchout/branchout
+  else
+    DO_BRANCHOUT=false
+  fi
+}
+
+ask_section_5_build_scripts() {
+  say_section "5. Local kaptain build scripts"
+
+  # Honour an existing env var so we never override the user's chosen layout.
+  if [[ -n "${KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT:-}" ]]; then
+    BUILD_SCRIPTS_PATH="${KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT}"
+  else
+    BUILD_SCRIPTS_PATH="${HOME}/projects/kaptain/buildon/buildon-github-actions"
+  fi
+
+  # If the target dir is already present, no clone is needed and no prompt is
+  # warranted. The profile var still gets written so future shells have it.
+  if [[ -d "${BUILD_SCRIPTS_PATH}" ]]; then
+    DO_BUILD_SCRIPTS=true
+    NEEDS_BUILD_CLONE=false
+    say "Build scripts already present at: ${BUILD_SCRIPTS_PATH}"
+    say "Skipping clone. Profile var will still be written to ensure it is set."
+    return
+  fi
+
+  cat <<EOF
+Enables 'kaptain build local' by placing the build scripts at
+  ${BUILD_SCRIPTS_PATH}
+and writing KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to your profile.
+EOF
+  say_blank
+  if ask_yn "Set up local kaptain build scripts?" "y"; then
+    DO_BUILD_SCRIPTS=true
+    NEEDS_BUILD_CLONE=true
+  else
+    DO_BUILD_SCRIPTS=false
+    NEEDS_BUILD_CLONE=false
+  fi
+}
+
+ask_section_6_helm() {
+  say_section "6. Helm"
+  cat <<'EOF'
+Needed for local builds of vendor helm repackage projects. Recommended.
+EOF
+  say_blank
+  if ask_yn "Install helm?" "y"; then
+    DO_HELM=true
+    plan_formulae helm
+  else
+    DO_HELM=false
+  fi
+}
+
+ask_section_7_shell_dev() {
+  say_section "7. Shell-dev tools (shellcheck + bats-core)"
+  cat <<'EOF'
+shellcheck + bats-core. Essential for shell script development work.
+EOF
+  say_blank
+  if ask_yn "Install shellcheck and bats-core?" "n" "y"; then
+    DO_SHELL_DEV=true
+    plan_formulae shellcheck bats-core
+  else
+    DO_SHELL_DEV=false
+  fi
+}
+
+ask_section_8_gitg() {
+  say_section "8. gitg (GUI git client)"
+  cat <<'EOF'
+Optional GUI git client, useful for visualising history trees. Recommended.
+EOF
+  say_blank
+  if ask_yn "Install gitg?" "y"; then
+    DO_GITG=true
+    plan_formulae gitg
+  else
+    DO_GITG=false
+  fi
+}
+
+ask_section_9_kdiff3() {
+  say_section "9. kdiff3 (GUI 3-way diff/merge)"
+  # If kdiff3 is already reachable on PATH (cask install, manual download, or
+  # any other source), don't reinstall and don't add a PATH line.
+  if command -v kdiff3 >/dev/null 2>&1; then
+    DO_KDIFF3=false
+    say "kdiff3 is already on your PATH at: $(command -v kdiff3)"
+    say "Skipping install and PATH addition."
+    return
+  fi
+  cat <<'EOF'
+Optional 3-way diff/merge GUI. If installed, the kdiff3 binary path is added
+to your PATH via the managed profile block.
+EOF
+  say_blank
+  if ask_yn "Install kdiff3?" "y"; then
+    DO_KDIFF3=true
+    plan_casks kdiff3
+  else
+    DO_KDIFF3=false
+  fi
+}
+
+ask_section_10_bash_completion() {
+  say_section "10. bash-completion"
+  if [[ "${SHELL_KIND}" != "bash" ]]; then
+    say "Skipped: your shell is not bash."
+    DO_BASH_COMPLETION=false
+    return
+  fi
+  cat <<EOF
+Tab-completion for kaptain and other CLIs. Detected bash major version
+${BASH_MAJOR}, would install: ${BASH_COMPLETION_PKG}
+EOF
+  say_blank
+  if ask_yn "Install bash-completion?" "y"; then
+    DO_BASH_COMPLETION=true
+    plan_formulae "${BASH_COMPLETION_PKG}"
+  else
+    DO_BASH_COMPLETION=false
+  fi
+}
+
+ask_section_11_runtime() {
+  say_section "11. Container runtime"
+  local choice
+  choice=$(ask_menu "Pick a container runtime:" 1 \
+    "Podman          (no-socket, lightweight, no built-in kube)" \
+    "Rancher Desktop (heavier, includes kube)" \
+    "Colima          (lightweight, no built-in kube)" \
+    "Docker Desktop  (commercial license may apply)" \
+    "None            (I already have one or do not need one)")
+  case "${choice}" in
+    1) RUNTIME_CHOICE="podman" ;;
+    2) RUNTIME_CHOICE="rancher" ;;
+    3) RUNTIME_CHOICE="colima" ;;
+    4) RUNTIME_CHOICE="docker" ;;
+    5) RUNTIME_CHOICE="none" ;;
+  esac
+
+  case "${RUNTIME_CHOICE}" in
+    podman)
+      plan_formulae podman podman-compose
+      if list_contains "podman" "${FORMULAE_INSTALLED}"; then
+        PODMAN_NEEDS_MACHINE_SETUP=false
+        say_blank
+        say "Podman is already installed. Assuming the machine is already configured;"
+        say "skipping init/rootful prompts and steps."
+      else
+        PODMAN_NEEDS_MACHINE_SETUP=true
+        say_blank
+        cat <<'EOF'
+Run podman as root in the VM? Necessary for some applications; trade-off:
+containers within the VM can run with elevated privileges. Press Enter for
+yes; type 'n' + Enter for no.
+EOF
+        if ask_yn "Use rootful podman?" "y"; then
+          PODMAN_ROOTFUL=true
+        else
+          PODMAN_ROOTFUL=false
+        fi
+      fi
+      say_blank
+      if ask_yn "Install Podman Desktop GUI?" "y"; then
+        PODMAN_DESKTOP=true
+        plan_casks podman-desktop
+      else
+        PODMAN_DESKTOP=false
+      fi
+      ;;
+    rancher)
+      plan_casks rancher
+      say_blank
+      say "Note: Rancher Desktop post-install steps (start, kube enable) are left to you."
+      ;;
+    colima)
+      plan_formulae colima
+      say_blank
+      say "Note: 'colima start' is left to you after install."
+      ;;
+    docker)
+      plan_casks docker
+      say_blank
+      say "Note: launching Docker Desktop and accepting its license is left to you."
+      ;;
+    none)
+      say "Skipping container runtime install."
+      ;;
+  esac
+}
+
+ask_section_12_gh() {
+  say_section "12. GitHub CLI (gh)"
+  cat <<'EOF'
+Are you using GitHub? Skip if you do not push to github.com.
+EOF
+  say_blank
+  if ask_yn "Install gh?" "y"; then
+    DO_GH=true
+    plan_formulae gh
+  else
+    DO_GH=false
+  fi
+}
+
+ask_section_13_claude() {
+  say_section "13. Claude Code + plugins"
+  if ask_yn "Install the claude-code cask?" "y"; then
+    DO_CLAUDE_CODE=true
+    plan_casks claude-code
+    say_blank
+    cat <<'EOF'
+Recommended Kaptain set:
+  Marketplaces: Branchout/branchout-marketplace,
+                kube-kaptain/kaptain-marketplace,
+                obra/superpowers-marketplace
+  Plugins:      branchout-skills,
+                superpowers,
+                elements-of-style
+EOF
+    if ask_yn "Install recommended marketplaces and plugins?" "y"; then
+      DO_CLAUDE_PLUGINS=true
+      local m p
+      for m in Branchout/branchout-marketplace kube-kaptain/kaptain-marketplace obra/superpowers-marketplace; do
+        if ! claude_marketplace_present "${m}"; then
+          CLAUDE_MARKETPLACES_TO_ADD=$(list_add "${m}" "${CLAUDE_MARKETPLACES_TO_ADD}")
+        fi
+      done
+      for p in branchout-skills@branchout-marketplace superpowers@superpowers-marketplace elements-of-style@superpowers-marketplace; do
+        if ! claude_plugin_present "${p}"; then
+          CLAUDE_PLUGINS_TO_INSTALL=$(list_add "${p}" "${CLAUDE_PLUGINS_TO_INSTALL}")
+        fi
+      done
+    else
+      DO_CLAUDE_PLUGINS=false
+    fi
+  else
+    DO_CLAUDE_CODE=false
+    DO_CLAUDE_PLUGINS=false
+  fi
+}
+
+ask_section_14_tessl() {
+  say_section "14. tessl"
+  cat <<'EOF'
+For LLM/agent skill development, testing, and evaluation.
+EOF
+  say_blank
+  if ask_yn "Install tessl?" "n" "y"; then
+    DO_TESSL=true
+    plan_formulae tesslio/tap/tessl
+  else
+    DO_TESSL=false
+  fi
+}
+
+ask_section_15_snyk() {
+  say_section "15. snyk"
+  cat <<'EOF'
+For security scanning skills.
+EOF
+  say_blank
+  if ask_yn "Install snyk?" "n" "y"; then
+    DO_SNYK=true
+    plan_formulae snyk/tap/snyk
+  else
+    DO_SNYK=false
+  fi
+}
+
+# ---------- profile block builder ----------
+
+# Returns 0 if the profile file already contains the given substring on a line
+# OUTSIDE our managed block. Used to avoid duplicating exports the user already
+# set themselves.
+profile_contains_outside_block() {
+  local file="$1"
+  local needle="$2"
+  if [[ ! -f "${file}" ]]; then
+    return 1
+  fi
+  awk -v begin="# BEGIN kaptain-setup-brew managed block" \
+      -v end="# END kaptain-setup-brew managed block" '
+    $0 == begin { in_block = 1; next }
+    $0 == end   { in_block = 0; next }
+    !in_block { print }
+  ' "${file}" | grep -qF "${needle}"
+}
+
+# add_profile_line NEEDLE LINE — appends LINE to PROFILE_LINES only if NEEDLE
+# is not already present in the profile outside our managed block.
+add_profile_line() {
+  local needle="$1"
+  local line="$2"
+  if profile_contains_outside_block "${PROFILE_FILE}" "${needle}"; then
+    echo "  (Skipping '${needle}' - already set in ${PROFILE_FILE})" >&2
+    return
+  fi
+  PROFILE_LINES+=("${line}")
+}
+
+build_profile_lines() {
+  PROFILE_LINES=()
+  if [[ "${DO_PROFILE_BLOCK}" != "true" ]]; then
+    return
+  fi
+  add_profile_line "HOMEBREW_NO_AUTO_UPDATE" \
+    "export HOMEBREW_NO_AUTO_UPDATE=1"
+  add_profile_line "HOMEBREW_NO_INSTALL_CLEANUP" \
+    "export HOMEBREW_NO_INSTALL_CLEANUP=1"
+  if [[ "${SHELL_KIND}" == "bash" ]]; then
+    add_profile_line "BASH_SILENCE_DEPRECATION_WARNING" \
+      "export BASH_SILENCE_DEPRECATION_WARNING=1"
+  fi
+  if [[ "${APPS_TO_HOME}" == "true" ]]; then
+    add_profile_line "HOMEBREW_CASK_OPTS" \
+      "export HOMEBREW_CASK_OPTS=\"--appdir=\${HOME}/Applications\""
+  fi
+  if [[ "${DO_BUILD_SCRIPTS}" == "true" ]]; then
+    # Write the resolved BUILD_SCRIPTS_PATH literally so the profile keeps the
+    # exact location the user already has, even if it is not the default.
+    add_profile_line "KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT" \
+      "export KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT=\"${BUILD_SCRIPTS_PATH}\""
+  fi
+  if [[ "${DO_KDIFF3}" == "true" ]]; then
+    if [[ "${APPS_TO_HOME}" == "true" ]]; then
+      add_profile_line "kdiff3.app/Contents/MacOS" \
+        "export PATH=\"\${PATH}:\${HOME}/Applications/kdiff3.app/Contents/MacOS\""
+    else
+      add_profile_line "kdiff3.app/Contents/MacOS" \
+        "export PATH=\"\${PATH}:/Applications/kdiff3.app/Contents/MacOS\""
+    fi
+  fi
+  if [[ "${DO_BASH_COMPLETION}" == "true" && "${SHELL_KIND}" == "bash" ]]; then
+    add_profile_line "bash_completion.sh" \
+      "[[ -r \"\$(brew --prefix)/etc/profile.d/bash_completion.sh\" ]] && . \"\$(brew --prefix)/etc/profile.d/bash_completion.sh\""
+  fi
+}
+
+write_managed_block() {
+  local file="$1"
+  shift
+  local begin="# BEGIN kaptain-setup-brew managed block"
+  local end="# END kaptain-setup-brew managed block"
+
+  touch "${file}"
+  local tmpfile
+  tmpfile=$(mktemp)
+
+  awk -v begin="${begin}" -v end="${end}" '
+    $0 == begin { in_block = 1; next }
+    $0 == end   { in_block = 0; next }
+    !in_block { print }
+  ' "${file}" > "${tmpfile}"
+
+  {
+    cat "${tmpfile}"
+    echo "${begin}"
+    if [[ $# -gt 0 ]]; then
+      local line
+      for line in "$@"; do
+        echo "${line}"
+      done
+    fi
+    echo "${end}"
+  } > "${file}"
+
+  rm -f "${tmpfile}"
+}
+
+# ---------- plan printing ----------
+
+print_plan() {
+  echo ""
+  echo "================================================================"
+  echo "PLAN"
+  echo "================================================================"
+  echo ""
+
+  if [[ -n "${FORMULAE_TO_INSTALL}" ]]; then
+    echo "Brew install (formulae):"
+    echo "  ${FORMULAE_TO_INSTALL}"
+  fi
+  if [[ -n "${FORMULAE_SKIPPED}" ]]; then
+    echo "  Already installed, will skip: ${FORMULAE_SKIPPED}"
+  fi
+  if [[ -n "${FORMULAE_TO_INSTALL}" || -n "${FORMULAE_SKIPPED}" ]]; then
+    echo ""
+  fi
+
+  if [[ -n "${CASKS_TO_INSTALL}" ]]; then
+    echo "Brew install (casks):"
+    echo "  ${CASKS_TO_INSTALL}"
+  fi
+  if [[ -n "${CASKS_SKIPPED}" ]]; then
+    echo "  Already installed, will skip: ${CASKS_SKIPPED}"
+  fi
+  if [[ -n "${CASKS_TO_INSTALL}" || -n "${CASKS_SKIPPED}" ]]; then
+    echo ""
+  fi
+
+  if [[ "${RUNTIME_CHOICE}" == "podman" && "${PODMAN_NEEDS_MACHINE_SETUP}" == "true" ]]; then
+    echo "Container runtime setup (podman):"
+    echo "  podman machine init"
+    echo "  podman machine start"
+    if [[ "${PODMAN_ROOTFUL}" == "true" ]]; then
+      echo "  podman machine stop"
+      echo "  podman machine set --rootful"
+      echo "  podman machine start"
+    fi
+    echo ""
+  fi
+
+  if [[ "${NEEDS_BUILD_CLONE}" == "true" ]]; then
+    echo "Kaptain build scripts:"
+    echo "  Target: ${BUILD_SCRIPTS_PATH}"
+    if [[ "${DO_BRANCHOUT}" == "true" ]]; then
+      echo "  branchout init https://github.com/kube-kaptain/kaptain.git"
+      echo "  branchout pull"
+    else
+      echo "  git clone https://github.com/kube-kaptain/buildon-github-actions.git \\"
+      echo "    ${BUILD_SCRIPTS_PATH}"
+    fi
+    echo ""
+  fi
+
+  if [[ "${DO_CLAUDE_PLUGINS}" == "true" ]] \
+      && [[ -n "${CLAUDE_MARKETPLACES_TO_ADD}${CLAUDE_PLUGINS_TO_INSTALL}" ]]; then
+    echo "Claude Code setup:"
+    local m p
+    for m in ${CLAUDE_MARKETPLACES_TO_ADD}; do
+      echo "  claude plugin marketplace add ${m}"
+    done
+    for p in ${CLAUDE_PLUGINS_TO_INSTALL}; do
+      echo "  claude plugin install ${p}"
+    done
+    echo ""
+  fi
+
+  if [[ "${DO_PROFILE_BLOCK}" == "true" ]]; then
+    if [[ ${#PROFILE_LINES[@]} -gt 0 ]]; then
+      echo "Shell profile (${PROFILE_FILE}):"
+      echo "  Write/replace managed block with:"
+      local line
+      for line in "${PROFILE_LINES[@]}"; do
+        echo "    ${line}"
+      done
+    else
+      echo "Shell profile (${PROFILE_FILE}):"
+      echo "  No changes - all values already present outside our managed block."
+      echo "  File will NOT be touched."
+    fi
+    echo ""
+  fi
+
+  echo "Post-install cleanup:"
+  echo "  Remove broken bash-completion file shipped by check-jsonschema (if present)"
+  echo ""
+}
+
+# ---------- execution ----------
+
+run_step() {
+  echo "+ $*"
+  if ! "$@"; then
+    echo "ERROR: step failed: $*" >&2
+    exit 1
+  fi
+}
+
+# Run a shell command string (for things needing redirects/cd)
+run_shell() {
+  echo "+ $1"
+  if ! bash -c "$1"; then
+    echo "ERROR: step failed: $1" >&2
+    exit 1
+  fi
+}
+
+execute_plan() {
+  echo ""
+  echo "================================================================"
+  echo "EXECUTING"
+  echo "================================================================"
+
+  if [[ "${DO_PROFILE_BLOCK}" == "true" && ${#PROFILE_LINES[@]} -gt 0 ]]; then
+    echo ""
+    echo "Writing managed profile block to ${PROFILE_FILE}"
+    write_managed_block "${PROFILE_FILE}" "${PROFILE_LINES[@]}"
+  fi
+
+  if [[ "${APPS_TO_HOME}" == "true" ]]; then
+    export HOMEBREW_CASK_OPTS="--appdir=${HOME}/Applications"
+    mkdir -p "${HOME}/Applications"
+  fi
+
+  if [[ -n "${FORMULAE_TO_INSTALL}" ]]; then
+    echo ""
+    # shellcheck disable=SC2086
+    run_step brew install ${FORMULAE_TO_INSTALL}
+  fi
+
+  if [[ -n "${CASKS_TO_INSTALL}" ]]; then
+    echo ""
+    # shellcheck disable=SC2086
+    run_step brew install --cask ${CASKS_TO_INSTALL}
+  fi
+
+  if [[ "${RUNTIME_CHOICE}" == "podman" && "${PODMAN_NEEDS_MACHINE_SETUP}" == "true" ]]; then
+    echo ""
+    echo "Setting up podman machine..."
+    run_step podman machine init
+    run_step podman machine start
+    if [[ "${PODMAN_ROOTFUL}" == "true" ]]; then
+      run_step podman machine stop
+      run_step podman machine set --rootful
+      run_step podman machine start
+    fi
+  fi
+
+  if [[ "${NEEDS_BUILD_CLONE}" == "true" ]]; then
+    echo ""
+    echo "Setting up kaptain build scripts at ${BUILD_SCRIPTS_PATH}..."
+    if [[ "${DO_BRANCHOUT}" == "true" ]]; then
+      run_shell "mkdir -p \"${HOME}/projects/kaptain\" && cd \"${HOME}/projects/kaptain\" && branchout init https://github.com/kube-kaptain/kaptain.git && branchout pull"
+    else
+      run_shell "mkdir -p \"$(dirname "${BUILD_SCRIPTS_PATH}")\" && git clone https://github.com/kube-kaptain/buildon-github-actions.git \"${BUILD_SCRIPTS_PATH}\""
+    fi
+  fi
+
+  if [[ "${DO_CLAUDE_PLUGINS}" == "true" ]] \
+      && [[ -n "${CLAUDE_MARKETPLACES_TO_ADD}${CLAUDE_PLUGINS_TO_INSTALL}" ]]; then
+    echo ""
+    echo "Configuring Claude Code marketplaces and plugins..."
+    local m p
+    for m in ${CLAUDE_MARKETPLACES_TO_ADD}; do
+      run_step claude plugin marketplace add "${m}"
+    done
+    for p in ${CLAUDE_PLUGINS_TO_INSTALL}; do
+      run_step claude plugin install "${p}"
+    done
+  fi
+
+  echo ""
+  echo "Post-install cleanup..."
+  cleanup_broken_completions
+
+  echo ""
+  if [[ "${DO_PROFILE_BLOCK}" == "true" && ${#PROFILE_LINES[@]} -gt 0 ]]; then
+    echo "Done. Open a new terminal or 'source ${PROFILE_FILE}' to pick up profile changes."
+  else
+    echo "Done."
+  fi
+}
+
+cleanup_broken_completions() {
+  # check-jsonschema ships a bash-completion file that errors in bash 3.2.
+  # The file that actually gets sourced is the symlink under brew's
+  # etc/bash_completion.d (and the newer share/bash-completion/completions
+  # path). Removing those is enough; leaving the Cellar source alone keeps
+  # brew's package state intact.
+  if ! command -v brew >/dev/null 2>&1; then
+    return
+  fi
+  local prefix
+  prefix=$(brew --prefix 2>/dev/null || true)
+  if [[ -z "${prefix}" ]]; then
+    return
+  fi
+  local found_any=false
+  local c
+  for c in "${prefix}/etc/bash_completion.d/check-jsonschema" \
+           "${prefix}/share/bash-completion/completions/check-jsonschema"; do
+    if [[ -e "${c}" || -L "${c}" ]]; then
+      echo "  Removing broken completion: ${c}"
+      rm -f "${c}" 2>/dev/null || sudo rm -f "${c}"
+      found_any=true
+    fi
+  done
+  if [[ "${found_any}" != "true" ]]; then
+    echo "  No broken completion files found."
+  fi
+}
+
+# ---------- main ----------
+
+main() {
+  preflight
+
+  echo "kaptain setup brew"
+  echo "Shell:        ${SHELL_KIND} (target profile: ${PROFILE_FILE})"
+  if [[ "${SHELL_KIND}" == "bash" ]]; then
+    echo "Bash major:   ${BASH_MAJOR} -> ${BASH_COMPLETION_PKG}"
+  fi
+  if [[ "${COPY_FRED}" == "true" ]]; then
+    echo "Mode:         --copy-fred (defaults accepted automatically)"
+  fi
+
+  ask_section_1_apps
+  ask_section_2_profile
+  ask_section_3_core
+  ask_section_4_branchout
+  ask_section_5_build_scripts
+  ask_section_6_helm
+  ask_section_7_shell_dev
+  ask_section_8_gitg
+  ask_section_9_kdiff3
+  ask_section_10_bash_completion
+  ask_section_11_runtime
+  ask_section_12_gh
+  ask_section_13_claude
+  ask_section_14_tessl
+  ask_section_15_snyk
+
+  build_profile_lines
+  print_plan
+
+  if [[ "${COPY_FRED}" == "true" ]]; then
+    echo "Proceeding (--copy-fred still requires this final confirm)."
+  fi
+
+  if ! ask_required_yn "Proceed?"; then
+    echo "Aborted. No changes made."
+    exit 0
+  fi
+
+  execute_plan
+}
+
+main

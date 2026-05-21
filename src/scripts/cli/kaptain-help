@@ -39,6 +39,7 @@ describe_command() {
     rotate-key-for-secrets) echo "Rotate encryption key for secrets" ;;
     build)                  echo "Build a kaptain project locally" ;;
     clean-project)          echo "Clean build output directories" ;;
+    setup)                  echo "Interactive workstation setup" ;;
     *)                      echo "" ;;
   esac
 }
@@ -143,6 +144,15 @@ Build Commands:
   kaptain clean project [--dir DIR]
     Remove build output directories (kaptain-out/ and kaptainpm/).
     --dir     Output directory to clean (default: kaptain-out)
+
+Setup Commands:
+  kaptain setup brew [--copy-fred] [--apps-in-home]
+    Interactive Homebrew setup for Kaptain users. Walks through suggest-ask-
+    remember prompts grouped by purpose (core deps, branchout, build scripts,
+    helm, shell tools, container runtime, gh, claude-code, etc.), prints a
+    plan, confirms once, then executes. macOS or Linux with brew.
+    --copy-fred     Accept defaults for every default-bearing prompt.
+    --apps-in-home  Use ~/Applications for cask installs.
 
 Default Override Environment Variables:
   KAPTAIN_USER_SCRIPTS_SECRETS_DIR              Secrets directory (default: src/secrets)

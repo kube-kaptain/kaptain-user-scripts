@@ -47,6 +47,7 @@ Currently CLI, routing, utility and encryption scripts useful to kaptain users.
 | `kaptain-clean`   | Route to clean sub-commands (secrets, etc.)        |
 | `kaptain-encrypt` | Auto-detect encryption type and encrypt            |
 | `kaptain-decrypt` | Auto-detect encryption type and decrypt            |
+| `kaptain-setup`   | Route to setup sub-commands (brew, etc.)           |
 
 ### Utility
 
@@ -84,6 +85,27 @@ see the [Encryption Walkthrough](EncryptionWalkthrough.md).
 |-------------------------|-----------------------------------|
 | `kaptain-build`         | Build a kaptain project locally   |
 | `kaptain-clean-project` | Clean build output directories    |
+
+### Setup
+
+| Script                | Description                                                |
+|-----------------------|------------------------------------------------------------|
+| `kaptain-setup-brew`  | Interactive Homebrew setup for Kaptain users (macOS/Linux) |
+
+`kaptain setup brew` walks through suggest-ask-remember prompts covering core
+build deps, Branchout + kaptain workspace, helm, shell-dev tools, GUI helpers,
+container runtime (Podman, Rancher Desktop, Colima, Docker Desktop), GitHub
+CLI, Claude Code with the recommended Kaptain marketplaces + plugins, and a
+managed shell-profile block. It prints the full plan and asks for one final
+confirm before doing anything.
+
+Flags:
+
+* `--copy-fred` accepts the default for every default-bearing prompt. The
+  apps-location prompt (corp/MDM consideration) is always asked unless
+  `--apps-in-home` is also passed.
+* `--apps-in-home` uses `~/Applications` for cask installs by setting
+  `HOMEBREW_CASK_OPTS=--appdir=$HOME/Applications` in your profile.
 
 Note that the encrypt/decrypt scripts all ask for a passphrase, but the usage is slightly different:
 

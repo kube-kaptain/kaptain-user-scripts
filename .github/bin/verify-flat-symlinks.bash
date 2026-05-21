@@ -39,7 +39,7 @@ for script in src/scripts/*/*; do
 done
 
 # Verify no git changes in src/flat/ compared to HEAD
-if ! git diff --quiet HEAD -- "${FLAT_DIR}"; then
+if ! git diff --quiet -- "${FLAT_DIR}"; then
   echo "ERROR: src/flat/ flat scripts are out of date. Commit the changes." >&2
   exit 1
 fi
