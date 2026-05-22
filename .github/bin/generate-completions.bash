@@ -2,20 +2,23 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
 #
-# Generate completion data from script case blocks into kaptain-completion.bash
+# Generate completion data from script case blocks into completion scripts
 #
 # Scans src/scripts/ for kaptain-* scripts, extracts flags from case patterns,
 # discovers encryption type values, and writes the data between markers in the
-# completion script.
+# bash and zsh completion scripts (same generated section in both).
 #
 # Usage:
-#   generate-completions.bash           # Update completion script in-place
+#   generate-completions.bash           # Update completion scripts in-place
 #   generate-completions.bash --check   # Exit non-zero if completion data is stale
 
 set -euo pipefail
 
 SCRIPTS_DIR="src/scripts"
-COMPLETION_SCRIPT="src/docker/kaptain-completion.bash"
+COMPLETION_SCRIPTS=(
+  "src/docker/kaptain-completion.bash"
+  "src/docker/kaptain-completion.zsh"
+)
 
 BEGIN_MARKER="# BEGIN GENERATED COMPLETIONS — do not edit by hand"
 END_MARKER="# END GENERATED COMPLETIONS — do not edit by hand"
@@ -30,10 +33,12 @@ if [[ ! -d "${SCRIPTS_DIR}" ]]; then
   exit 1
 fi
 
-if [[ ! -f "${COMPLETION_SCRIPT}" ]]; then
-  echo "ERROR: Completion script not found: ${COMPLETION_SCRIPT}" >&2
-  exit 1
-fi
+for script in "${COMPLETION_SCRIPTS[@]}"; do
+  if [[ ! -f "${script}" ]]; then
+    echo "ERROR: Completion script not found: ${script}" >&2
+    exit 1
+  fi
+done
 
 # Extract flags from a script's case patterns
 # Matches lines like: "    --dir)"  or  "    -h|--help)"
@@ -101,33 +106,37 @@ generate_section() {
   echo "${END_MARKER}"
 }
 
-# Read current generated section from the completion script
+# Read current generated section from a completion script
 current_section() {
-  sed -n "/${BEGIN_MARKER}/,/${END_MARKER}/p" "${COMPLETION_SCRIPT}"
+  sed -n "/${BEGIN_MARKER}/,/${END_MARKER}/p" "$1"
 }
 
-# Generate new section
 new_section=$(generate_section)
-old_section=$(current_section)
 
 if [[ "${CHECK_MODE}" == "true" ]]; then
-  if [[ "${new_section}" == "${old_section}" ]]; then
-    echo "Completion data is up to date"
-    exit 0
-  else
-    echo "ERROR: Completion data is stale" >&2
+  stale=false
+  for script in "${COMPLETION_SCRIPTS[@]}"; do
+    if [[ "${new_section}" != "$(current_section "${script}")" ]]; then
+      echo "ERROR: Completion data is stale in ${script}" >&2
+      stale=true
+    fi
+  done
+  if [[ "${stale}" == "true" ]]; then
     echo "Run: .github/bin/generate-completions.bash" >&2
     exit 1
   fi
+  echo "Completion data is up to date"
+  exit 0
 fi
 
-# Replace the section between markers in the completion script
+# Replace the section between markers in each completion script
 # Strategy: print lines before BEGIN, print new section, print lines after END
-{
-  sed -n "1,/${BEGIN_MARKER}/{ /${BEGIN_MARKER}/!p; }" "${COMPLETION_SCRIPT}"
-  echo "${new_section}"
-  sed -n "/${END_MARKER}/,\${ /${END_MARKER}/!p; }" "${COMPLETION_SCRIPT}"
-} > "${COMPLETION_SCRIPT}.tmp"
-
-mv "${COMPLETION_SCRIPT}.tmp" "${COMPLETION_SCRIPT}"
-echo "Updated ${COMPLETION_SCRIPT}"
+for script in "${COMPLETION_SCRIPTS[@]}"; do
+  {
+    sed -n "1,/${BEGIN_MARKER}/{ /${BEGIN_MARKER}/!p; }" "${script}"
+    echo "${new_section}"
+    sed -n "/${END_MARKER}/,\${ /${END_MARKER}/!p; }" "${script}"
+  } > "${script}.tmp"
+  mv "${script}.tmp" "${script}"
+  echo "Updated ${script}"
+done

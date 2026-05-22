@@ -102,14 +102,14 @@ echo "Running: completions staleness check"
 echo "========================================"
 
 .github/bin/generate-completions.bash
-if git diff --quiet src/docker/kaptain-completion.bash 2>/dev/null; then
+if git diff --quiet src/docker/kaptain-completion.bash src/docker/kaptain-completion.zsh 2>/dev/null; then
   PASSED_TESTS=$((PASSED_TESTS + 1))
   echo ""
   echo "[PASSED] completions up to date"
 else
   FAILED_TESTS=$((FAILED_TESTS + 1))
   echo ""
-  echo "[FAILED] completions are stale — commit the updated src/docker/kaptain-completion.bash"
+  echo "[FAILED] completions are stale — commit the updated src/docker/kaptain-completion.{bash,zsh}"
 fi
 
 echo ""

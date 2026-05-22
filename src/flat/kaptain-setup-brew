@@ -698,11 +698,21 @@ EOF
 
 ask_section_13_claude() {
   say_section "13. Claude Code + plugins"
-  if ask_yn "Install the claude-code cask?" "y"; then
+  if command -v claude >/dev/null 2>&1; then
+    DO_CLAUDE_CODE=false
+    say "claude is already on your PATH at: $(command -v claude)"
+    say "Skipping cask install."
+    say_blank
+  elif ask_yn "Install the claude-code cask?" "y"; then
     DO_CLAUDE_CODE=true
     plan_casks claude-code
     say_blank
-    cat <<'EOF'
+  else
+    DO_CLAUDE_CODE=false
+    DO_CLAUDE_PLUGINS=false
+    return
+  fi
+  cat <<'EOF'
 Recommended Kaptain set:
   Marketplaces: Branchout/branchout-marketplace,
                 kube-kaptain/kaptain-marketplace,
@@ -711,24 +721,20 @@ Recommended Kaptain set:
                 superpowers,
                 elements-of-style
 EOF
-    if ask_yn "Install recommended marketplaces and plugins?" "y"; then
-      DO_CLAUDE_PLUGINS=true
-      local m p
-      for m in Branchout/branchout-marketplace kube-kaptain/kaptain-marketplace obra/superpowers-marketplace; do
-        if ! claude_marketplace_present "${m}"; then
-          CLAUDE_MARKETPLACES_TO_ADD=$(list_add "${m}" "${CLAUDE_MARKETPLACES_TO_ADD}")
-        fi
-      done
-      for p in branchout-skills@branchout-marketplace superpowers@superpowers-marketplace elements-of-style@superpowers-marketplace; do
-        if ! claude_plugin_present "${p}"; then
-          CLAUDE_PLUGINS_TO_INSTALL=$(list_add "${p}" "${CLAUDE_PLUGINS_TO_INSTALL}")
-        fi
-      done
-    else
-      DO_CLAUDE_PLUGINS=false
-    fi
+  if ask_yn "Install recommended marketplaces and plugins?" "y"; then
+    DO_CLAUDE_PLUGINS=true
+    local m p
+    for m in Branchout/branchout-marketplace kube-kaptain/kaptain-marketplace obra/superpowers-marketplace; do
+      if ! claude_marketplace_present "${m}"; then
+        CLAUDE_MARKETPLACES_TO_ADD=$(list_add "${m}" "${CLAUDE_MARKETPLACES_TO_ADD}")
+      fi
+    done
+    for p in branchout-skills@branchout-marketplace superpowers@superpowers-marketplace elements-of-style@superpowers-marketplace; do
+      if ! claude_plugin_present "${p}"; then
+        CLAUDE_PLUGINS_TO_INSTALL=$(list_add "${p}" "${CLAUDE_PLUGINS_TO_INSTALL}")
+      fi
+    done
   else
-    DO_CLAUDE_CODE=false
     DO_CLAUDE_PLUGINS=false
   fi
 }
@@ -909,6 +915,7 @@ print_plan() {
     echo "  Target: ${BUILD_SCRIPTS_PATH}"
     if [[ "${DO_BRANCHOUT}" == "true" ]]; then
       echo "  branchout init https://github.com/kube-kaptain/kaptain.git"
+      echo "  cd ${HOME}/projects/kaptain"
       echo "  branchout pull"
     else
       echo "  git clone https://github.com/kube-kaptain/buildon-github-actions.git \\"
@@ -982,6 +989,11 @@ execute_plan() {
     write_managed_block "${PROFILE_FILE}" "${PROFILE_LINES[@]}"
   fi
 
+  if [[ "${DO_PROFILE_BLOCK}" == "true" ]]; then
+    export HOMEBREW_NO_AUTO_UPDATE=1
+    export HOMEBREW_NO_INSTALL_CLEANUP=1
+  fi
+
   if [[ "${APPS_TO_HOME}" == "true" ]]; then
     export HOMEBREW_CASK_OPTS="--appdir=${HOME}/Applications"
     mkdir -p "${HOME}/Applications"
@@ -1015,7 +1027,7 @@ execute_plan() {
     echo ""
     echo "Setting up kaptain build scripts at ${BUILD_SCRIPTS_PATH}..."
     if [[ "${DO_BRANCHOUT}" == "true" ]]; then
-      run_shell "mkdir -p \"${HOME}/projects/kaptain\" && cd \"${HOME}/projects/kaptain\" && branchout init https://github.com/kube-kaptain/kaptain.git && branchout pull"
+      run_shell "branchout init https://github.com/kube-kaptain/kaptain.git && cd \"${HOME}/projects/kaptain\" && branchout pull"
     else
       run_shell "mkdir -p \"$(dirname "${BUILD_SCRIPTS_PATH}")\" && git clone https://github.com/kube-kaptain/buildon-github-actions.git \"${BUILD_SCRIPTS_PATH}\""
     fi

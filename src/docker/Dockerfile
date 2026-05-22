@@ -6,3 +6,4 @@ COPY kaptain-user-scripts-encryption-${Version}.zip /
 COPY kaptain-user-scripts-util-${Version}.zip /
 COPY kaptain-user-scripts-42-${Version}.zip /
 COPY kaptain-completion.bash /
+COPY kaptain-completion.zsh /
