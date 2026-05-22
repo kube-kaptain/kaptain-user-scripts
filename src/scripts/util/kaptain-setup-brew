@@ -909,6 +909,7 @@ print_plan() {
     echo "  Target: ${BUILD_SCRIPTS_PATH}"
     if [[ "${DO_BRANCHOUT}" == "true" ]]; then
       echo "  branchout init https://github.com/kube-kaptain/kaptain.git"
+      echo "  cd ${HOME}/projects/kaptain"
       echo "  branchout pull"
     else
       echo "  git clone https://github.com/kube-kaptain/buildon-github-actions.git \\"
@@ -1015,7 +1016,7 @@ execute_plan() {
     echo ""
     echo "Setting up kaptain build scripts at ${BUILD_SCRIPTS_PATH}..."
     if [[ "${DO_BRANCHOUT}" == "true" ]]; then
-      run_shell "mkdir -p \"${HOME}/projects/kaptain\" && cd \"${HOME}/projects/kaptain\" && branchout init https://github.com/kube-kaptain/kaptain.git && branchout pull"
+      run_shell "branchout init https://github.com/kube-kaptain/kaptain.git && cd \"${HOME}/projects/kaptain\" && branchout pull"
     else
       run_shell "mkdir -p \"$(dirname "${BUILD_SCRIPTS_PATH}")\" && git clone https://github.com/kube-kaptain/buildon-github-actions.git \"${BUILD_SCRIPTS_PATH}\""
     fi
