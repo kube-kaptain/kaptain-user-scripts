@@ -983,6 +983,11 @@ execute_plan() {
     write_managed_block "${PROFILE_FILE}" "${PROFILE_LINES[@]}"
   fi
 
+  if [[ "${DO_PROFILE_BLOCK}" == "true" ]]; then
+    export HOMEBREW_NO_AUTO_UPDATE=1
+    export HOMEBREW_NO_INSTALL_CLEANUP=1
+  fi
+
   if [[ "${APPS_TO_HOME}" == "true" ]]; then
     export HOMEBREW_CASK_OPTS="--appdir=${HOME}/Applications"
     mkdir -p "${HOME}/Applications"
