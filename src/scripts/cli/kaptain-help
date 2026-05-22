@@ -103,8 +103,10 @@ Utility Commands:
   kaptain list manifests [--dir DIR] [--all]
     List Kubernetes manifest files and their line counts
 
-  kaptain list config [--dir DIR] [--all]
-    List config with key/token-name on the left and value to right
+  kaptain list config [--dir DIR] [--defaults-dir DIR] [--all]
+    List config and defaults with key/token-name on the left and value to right
+    --dir           Config directory (default: src/config)
+    --defaults-dir  Defaults directory (default: src/defaults)
 
   kaptain list secrets [--dir DIR] [--all] [-v|--verbose]
     List encrypted files and unencrypted raw input and extracted output files
@@ -157,6 +159,7 @@ Setup Commands:
 Default Override Environment Variables:
   KAPTAIN_USER_SCRIPTS_SECRETS_DIR              Secrets directory (default: src/secrets)
   KAPTAIN_USER_SCRIPTS_CONFIG_DIR               Config directory (default: src/config)
+  KAPTAIN_USER_SCRIPTS_DEFAULTS_DIR             Defaults directory (default: src/defaults)
   KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR            Manifests directory (default: src/kubernetes)
   KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE          Encryption type (default: age)
   KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT  Build scripts repo location (required for build)

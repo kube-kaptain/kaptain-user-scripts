@@ -53,7 +53,7 @@ _kaptain_flags() {
     kaptain-keygen)                     echo "--help --output --type -h" ;;
     kaptain-rotate-key-for-secrets)     echo "--ask-for-key --dir --help --new-type --output -h" ;;
     kaptain-clean-secrets)              echo "--all --dir --dry-run --help -h" ;;
-    kaptain-list-config)                echo "--all --dir --help -h" ;;
+    kaptain-list-config)                echo "--all --defaults-dir --dir --help -h" ;;
     kaptain-list-manifests)             echo "--all --dir --help -h" ;;
     kaptain-list-secrets)               echo "--all --dir --help --verbose -h -v" ;;
     kaptain-setup-brew)                 echo "--apps-in-home --copy-fred --help -h" ;;

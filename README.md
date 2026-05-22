@@ -53,7 +53,7 @@ Currently CLI, routing, utility and encryption scripts useful to kaptain users.
 
 | Script                   | Description                                      |
 |--------------------------|--------------------------------------------------|
-| `kaptain-list-config`    | List config files and their values               |
+| `kaptain-list-config`    | List config and defaults files and their values  |
 | `kaptain-list-secrets`   | List secret files and their encryption status    |
 | `kaptain-list-manifests` | List Kubernetes manifest files and validate them |
 | `kaptain-clean-secrets`  | Remove decrypted secret files (.raw, .txt)       |
@@ -133,6 +133,7 @@ type. Set these in your shell profile to avoid passing `--dir` on every invocati
 |------------------------------------------------|------------------|-----------------------------------------------------|----------------------------------------------------|-----------------------------------------------|
 | `KAPTAIN_USER_SCRIPTS_SECRETS_DIR`             | `src/secrets`    | `src/main/secrets/values`                           | `secrets`                                          | list secrets, encrypt, decrypt, clean secrets |
 | `KAPTAIN_USER_SCRIPTS_CONFIG_DIR`              | `src/config`     | N/A                                                 | `config`                                           | list config                                   |
+| `KAPTAIN_USER_SCRIPTS_DEFAULTS_DIR`            | `src/defaults`   | N/A                                                 | `defaults`                                         | list config                                   |
 | `KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR`           | `src/kubernetes` | `src/main/kubernetes`                               | `k8s`                                              | list manifests                                |
 | `KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE`         | `age`            | `sha256.aes256`                                     | `sha256.aes256`                                    | encrypt (router default), keygen              |
 | `KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT` | (none)           | `~/projects/kaptain/buildon/buildon-github-actions` | `~/projects/kaptain/kaptain/kaptain-build-scripts` | build                                         |

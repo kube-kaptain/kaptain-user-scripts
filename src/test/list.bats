@@ -89,6 +89,7 @@ create_file_with_time() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage:"* ]]
   [[ "$output" == *"--dir"* ]]
+  [[ "$output" == *"--defaults-dir"* ]]
   [[ "$output" == *"--all"* ]]
 }
 
@@ -98,16 +99,34 @@ create_file_with_time() {
   [[ "$output" == *"ERROR: --dir requires a value"* ]]
 }
 
+@test "list-config: missing --defaults-dir value fails" {
+  run "${TEST_BIN}/kaptain-list-config" --defaults-dir
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: --defaults-dir requires a value"* ]]
+}
+
 @test "list-config: nonexistent directory fails" {
   run "${TEST_BIN}/kaptain-list-config" --dir nonexistent/path
   [ "$status" -eq 1 ]
-  [[ "$output" == *"not found"* ]]
+  [[ "$output" == *"Config directory not found"* ]]
+}
+
+@test "list-config: nonexistent defaults directory fails" {
+  run "${TEST_BIN}/kaptain-list-config" --defaults-dir nonexistent/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Defaults directory not found"* ]]
 }
 
 @test "list-config: absolute path rejected" {
   run "${TEST_BIN}/kaptain-list-config" --dir /absolute/path
   [ "$status" -eq 1 ]
-  [[ "$output" == *"must be a relative path"* ]]
+  [[ "$output" == *"--dir must be a relative path"* ]]
+}
+
+@test "list-config: defaults-dir absolute path rejected" {
+  run "${TEST_BIN}/kaptain-list-config" --defaults-dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--defaults-dir must be a relative path"* ]]
 }
 
 @test "list-config: unknown option fails" {
@@ -126,7 +145,73 @@ create_file_with_time() {
   run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Listing config in"* ]]
-  [[ "$output" == *"No config files found"* ]]
+  [[ "$output" == *"No files found"* ]]
+}
+
+@test "list-config: neither config nor defaults dir exists fails" {
+  mkdir -p "${TEST_LIST}/nothing-here"
+
+  run bash -c "cd '${TEST_LIST_ABS}/nothing-here' && '${TEST_BIN_ABS}/kaptain-list-config'"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Neither src/config nor src/defaults exists"* ]]
+}
+
+@test "list-config: defaults-only directory uses 'defaults' label" {
+  mkdir -p "${TEST_LIST}/defaults-only/defaults"
+  echo "image-tag-value" > "${TEST_LIST}/defaults-only/defaults/image-tag"
+
+  run bash -c "cd '${TEST_LIST_ABS}/defaults-only' && '${TEST_BIN_ABS}/kaptain-list-config' --defaults-dir defaults"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Listing defaults:"* ]]
+  [[ "$output" != *"Listing config"* ]]
+  [[ "$output" == *"image-tag:"*"image-tag-value"* ]]
+  [[ "$output" == *"Summary: 1 one-newline"* ]]
+}
+
+@test "list-config: both config and defaults shows dual-section output" {
+  local proj="${TEST_LIST}/dual"
+  mkdir -p "${proj}/config" "${proj}/defaults"
+  echo "localhost" > "${proj}/config/hostname"
+  echo "5432" > "${proj}/config/port"
+  echo "image-tag-default" > "${proj}/defaults/image-tag"
+
+  run bash -c "cd '${TEST_LIST_ABS}/dual' && '${TEST_BIN_ABS}/kaptain-list-config' --dir config --defaults-dir defaults"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Listing config and defaults:"* ]]
+  [[ "$output" == *"[config]"* ]]
+  [[ "$output" == *"[defaults]"* ]]
+  [[ "$output" == *"hostname:"*"localhost"* ]]
+  [[ "$output" == *"port:"*"5432"* ]]
+  [[ "$output" == *"image-tag:"*"image-tag-default"* ]]
+  [[ "$output" == *"Summary:"* ]]
+  [[ "$output" == *"config:"*"2 one-newline"* ]]
+  [[ "$output" == *"defaults:"*"1 one-newline"* ]]
+  [[ "$output" == *"Total: 3 values"* ]]
+}
+
+@test "list-config: dual mode with empty defaults shows empty in summary" {
+  local proj="${TEST_LIST}/dual-empty-defaults"
+  mkdir -p "${proj}/config" "${proj}/defaults"
+  echo "v" > "${proj}/config/k"
+
+  run bash -c "cd '${TEST_LIST_ABS}/dual-empty-defaults' && '${TEST_BIN_ABS}/kaptain-list-config' --dir config --defaults-dir defaults"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[config]"* ]]
+  [[ "$output" == *"[defaults]"* ]]
+  [[ "$output" == *"No files found"* ]]
+  [[ "$output" == *"defaults:"*"empty"* ]]
+  [[ "$output" == *"Total: 1 values"* ]]
+}
+
+@test "list-config: KAPTAIN_USER_SCRIPTS_DEFAULTS_DIR overrides default" {
+  local proj="${TEST_LIST}/env-defaults"
+  mkdir -p "${proj}/my-defaults"
+  echo "ev" > "${proj}/my-defaults/ek"
+
+  run bash -c "cd '${TEST_LIST_ABS}/env-defaults' && KAPTAIN_USER_SCRIPTS_DEFAULTS_DIR=my-defaults '${TEST_BIN_ABS}/kaptain-list-config'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Listing my-defaults:"* ]]
+  [[ "$output" == *"ek:"*"ev"* ]]
 }
 
 @test "list-config: single file shows name and value" {
@@ -247,9 +332,46 @@ create_file_with_time() {
   [[ "$output" == *"Found 2 project(s) with src/config"* ]]
   [[ "$output" == *"group/group-alpha"* ]]
   [[ "$output" == *"group/group-beta"* ]]
-  [[ "$output" == *"Listing src/config in group/group-alpha"* ]]
-  [[ "$output" == *"Listing src/config in group/group-beta"* ]]
+  [[ "$output" == *"Listing src/config in group/group-alpha:"* ]]
+  [[ "$output" == *"Listing src/config in group/group-beta:"* ]]
+  [[ "$output" == *"hostname:"*"localhost"* ]]
+  [[ "$output" == *"port:"*"5432"* ]]
   [[ "$output" == *"Done. Listed 2 project(s)."* ]]
+}
+
+@test "list-config: --all mixed config-only and defaults-only projects" {
+  local fake_home="${TEST_LIST_ABS}/fake-home-config-mixed"
+  local branchout_root="${fake_home}/projects/testproj"
+
+  mkdir -p "${branchout_root}/group/group-alpha/src/config"
+  mkdir -p "${branchout_root}/group/group-beta/src/defaults"
+  mkdir -p "${branchout_root}/group/group-gamma/src/config"
+  mkdir -p "${branchout_root}/group/group-gamma/src/defaults"
+  touch "${branchout_root}/Branchoutfile"
+  touch "${branchout_root}/Branchoutprojects"
+
+  echo "alpha-host" > "${branchout_root}/group/group-alpha/src/config/hostname"
+  echo "beta-tag" > "${branchout_root}/group/group-beta/src/defaults/image-tag"
+  echo "gamma-host" > "${branchout_root}/group/group-gamma/src/config/hostname"
+  echo "gamma-tag" > "${branchout_root}/group/group-gamma/src/defaults/image-tag"
+
+  HOME="${fake_home}" run bash -c "cd '${branchout_root}/group/group-alpha' && '${TEST_BIN_ABS}/kaptain-list-config' --all"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Found 3 project(s) with src/config or src/defaults"* ]]
+  [[ "$output" == *"group/group-alpha"* ]]
+  [[ "$output" == *"group/group-beta"* ]]
+  [[ "$output" == *"group/group-gamma"* ]]
+  # Config-only project: "Listing src/config in group/group-alpha"
+  [[ "$output" == *"Listing src/config in group/group-alpha:"* ]]
+  [[ "$output" == *"hostname:"*"alpha-host"* ]]
+  # Defaults-only project: "Listing src/defaults in group/group-beta"
+  [[ "$output" == *"Listing src/defaults in group/group-beta:"* ]]
+  [[ "$output" == *"image-tag:"*"beta-tag"* ]]
+  # Dual-section project: "Listing src/config and src/defaults in group/group-gamma"
+  [[ "$output" == *"Listing src/config and src/defaults in group/group-gamma:"* ]]
+  [[ "$output" == *"hostname:"*"gamma-host"* ]]
+  [[ "$output" == *"image-tag:"*"gamma-tag"* ]]
+  [[ "$output" == *"Done. Listed 3 project(s)."* ]]
 }
 
 # =============================================================================
