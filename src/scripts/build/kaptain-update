@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Kaptain update router - delegates to kaptain-update-<target> scripts.
+#
+# Usage: kaptain-update <target> [options]
+#        kaptain update versions [options]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  echo "Usage: kaptain update <target> [options]"
+  echo ""
+  echo "Targets:"
+  for script in "${SCRIPT_DIR}"/kaptain-update-*; do
+    if [[ -x "${script}" ]]; then
+      target="${script##*kaptain-update-}"
+      echo "  ${target}"
+    fi
+  done
+  echo ""
+  echo "Run 'kaptain update <target> --help' for target-specific options."
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 1
+fi
+
+target="$1"
+shift
+
+case "${target}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    UPDATE_SCRIPT="${SCRIPT_DIR}/kaptain-update-${target}"
+    if [[ -x "${UPDATE_SCRIPT}" ]]; then
+      exec "${UPDATE_SCRIPT}" "$@"
+    else
+      echo "ERROR: Unknown update target: ${target}" >&2
+      echo "" >&2
+      usage >&2
+      exit 1
+    fi
+    ;;
+esac

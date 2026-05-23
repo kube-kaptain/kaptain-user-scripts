@@ -1,0 +1,16 @@
+apiVersion: kaptain.org/1.18
+kind: docker-build-dockerfile
+metadata:
+  description: "Kaptain user scripts packaged as OCI image and release zips"
+
+spec:
+  layers:
+    - layer-github-flow-strict:[1.3,2.0)
+  main:
+    hooks:
+      preTaggingTests: .github/bin/run-tests.bash
+      preDockerPrepare: .github/bin/package-for-release.bash
+  platform:
+    githubActions:
+      release:
+        verbatimFiles: kaptain-out/user-scripts/all/kaptain-user-scripts.zip kaptain-out/user-scripts/cli/kaptain-user-scripts-cli.zip kaptain-out/user-scripts/encryption/kaptain-user-scripts-encryption.zip kaptain-out/user-scripts/util/kaptain-user-scripts-util.zip kaptain-out/user-scripts/build/kaptain-user-scripts-build.zip kaptain-out/user-scripts/42/kaptain-user-scripts-42.zip src/docker/kaptain-completion.bash src/docker/kaptain-completion.zsh

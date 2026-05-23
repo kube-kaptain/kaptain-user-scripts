@@ -52,11 +52,14 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 - `kaptain-decrypt` - detects type, delegates
 - `kaptain-encrypt` - detects/defaults type, delegates
 - `kaptain-build`   - resolves kind, delegates to build scripts repo
+- `kaptain-update`  - dispatches to `kaptain-update-<target>` (e.g. versions)
 - `kaptain-setup`   - dispatches to `kaptain-setup-<target>` (e.g. brew)
 
 ### Build Scripts
 - `kaptain-build`
 - `kaptain-clean-project`
+- `kaptain-update`
+- `kaptain-update-versions`
 
 ### Utility Scripts
 - `kaptain-list-config`
@@ -96,7 +99,7 @@ Five bundles produced from kaptain-user-scripts repo:
 | `kaptain-user-scripts-cli.zip`        | CLI scripts only (kaptain, kaptain-help, kaptain-clean, kaptain-list, kaptain-setup) |
 | `kaptain-user-scripts-encryption.zip` | Encryption scripts only                                                              |
 | `kaptain-user-scripts-util.zip`       | Utility scripts (list-secrets, clean-secrets, etc.)                                  |
-| `kaptain-user-scripts-build.zip`      | Build scripts only (kaptain-build, kaptain-clean-project)                            |
+| `kaptain-user-scripts-build.zip`      | Build scripts only (build, clean-project, update, update-versions)                   |
 | `kaptain-user-scripts-42.zip`         | Meta package placeholder for brew                                                    |
 
 ### Dependency Structure

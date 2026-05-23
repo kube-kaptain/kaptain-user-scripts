@@ -2,24 +2,28 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
 #
-# List config files and their values.
+# List config and defaults files and their values.
 # Run from repo root.
 #
-# Usage: kaptain-list-config [--dir DIR] [--all]
+# Usage: kaptain-list-config [--dir DIR] [--defaults-dir DIR] [--all]
 set -euo pipefail
 
 CONFIG_DIR="${KAPTAIN_USER_SCRIPTS_CONFIG_DIR:-src/config}"
+DEFAULTS_DIR="${KAPTAIN_USER_SCRIPTS_DEFAULTS_DIR:-src/defaults}"
+CONFIG_DIR_EXPLICIT=false
+DEFAULTS_DIR_EXPLICIT=false
 ALL_PROJECTS=false
 
 usage() {
-  echo "Usage: kaptain list config [--dir DIR] [--all]"
+  echo "Usage: kaptain list config [--dir DIR] [--defaults-dir DIR] [--all]"
   echo ""
-  echo "List config files and their values."
+  echo "List config and defaults files and their values."
   echo ""
   echo "Options:"
-  echo "  --dir DIR     Config directory (default: src/config)"
-  echo "  --all         List all projects in branchout tree"
-  echo "  -h, --help    Show this help"
+  echo "  --dir DIR           Config directory (default: src/config)"
+  echo "  --defaults-dir DIR  Defaults directory (default: src/defaults)"
+  echo "  --all               List all projects in branchout tree"
+  echo "  -h, --help          Show this help"
 }
 
 # Find branchout root by walking up from cwd
@@ -31,7 +35,6 @@ find_branchout_root() {
   test -f ~/.config/branchoutrc && source ~/.config/branchoutrc
   local home_projects="${HOME}/${BRANCHOUT_PROJECTS_DIRECTORY}"
 
-  # Check we're under the branchout projects directory
   if [[ "${dir}" != "${home_projects}/"* ]]; then
     echo "ERROR: Not under ${home_projects}/, cannot find branchout tree" >&2
     exit 1
@@ -46,30 +49,39 @@ find_branchout_root() {
   done
 
   echo "ERROR: Branchout root not found" >&2
-  echo "ERROR: Cannot perform --all config listing without a valid structure" >&2
+  echo "ERROR: Cannot perform --all listing without a valid structure" >&2
   exit 1
 }
 
-# List config from a single directory
-# Arguments: $1 = config directory path
-list_config_dir() {
+# Print categorised file listing for a single directory.
+#   $1 = directory path
+#   $2 = indent prefix ("" for single-section, "  " for sub-section)
+# Sets LAST_NO_NEWLINE_COUNT, LAST_ONE_NEWLINE_COUNT, LAST_MULTILINE_COUNT
+# and LAST_HAS_ANY_FILES (true/false) for callers building combined summaries.
+print_categorised() {
   local config_dir="$1"
+  local indent="$2"
 
-  # Collect all files
+  LAST_NO_NEWLINE_COUNT=0
+  LAST_ONE_NEWLINE_COUNT=0
+  LAST_MULTILINE_COUNT=0
+  LAST_HAS_ANY_FILES=false
+
   local files=()
   local rels=()
   while IFS= read -r -d '' file; do
     files+=("${file}")
-    rels+=("${file#${config_dir}/}")
+    rels+=("${file#"${config_dir}/"}")
   done < <(find "${config_dir}" -type f -print0 | sort -z)
 
   if [[ ${#files[@]} -eq 0 ]]; then
     echo ""
-    echo "No config files found"
+    echo "${indent}No files found"
     return 0
   fi
 
-  # Categorise files by newline count
+  LAST_HAS_ANY_FILES=true
+
   local no_newline_rels=()
   local no_newline_vals=()
   local one_newline_rels=()
@@ -77,6 +89,7 @@ list_config_dir() {
   local multiline_rels=()
   local multiline_counts=()
 
+  local i
   for i in "${!files[@]}"; do
     local rel="${rels[$i]}"
     local newline_count
@@ -94,56 +107,139 @@ list_config_dir() {
     fi
   done
 
-  # Find longest relative path across all categories for padding
+  LAST_NO_NEWLINE_COUNT=${#no_newline_rels[@]}
+  LAST_ONE_NEWLINE_COUNT=${#one_newline_rels[@]}
+  LAST_MULTILINE_COUNT=${#multiline_rels[@]}
+
   local max_len=0
+  local rel
   for rel in "${no_newline_rels[@]+"${no_newline_rels[@]}"}" "${one_newline_rels[@]+"${one_newline_rels[@]}"}" "${multiline_rels[@]+"${multiline_rels[@]}"}"; do
     if [[ ${#rel} -gt ${max_len} ]]; then
       max_len=${#rel}
     fi
   done
-  # +1 for colon, +2 for gap after longest key
   local pad=$((max_len + 3))
 
   if [[ ${#no_newline_rels[@]} -gt 0 ]]; then
     echo ""
-    echo "No newline (usually correct):"
+    echo "${indent}No newline (usually correct):"
     for i in "${!no_newline_rels[@]}"; do
-      printf "  %-${pad}s%s\n" "${no_newline_rels[$i]}:" "${no_newline_vals[$i]}"
+      printf "${indent}  %-${pad}s%s\n" "${no_newline_rels[$i]}:" "${no_newline_vals[$i]}"
     done
   fi
 
   if [[ ${#one_newline_rels[@]} -gt 0 ]]; then
     echo ""
-    echo "One newline (consider stripping):"
+    echo "${indent}One newline (consider stripping):"
     for i in "${!one_newline_rels[@]}"; do
-      printf "  %-${pad}s%s\n" "${one_newline_rels[$i]}:" "${one_newline_vals[$i]}"
+      printf "${indent}  %-${pad}s%s\n" "${one_newline_rels[$i]}:" "${one_newline_vals[$i]}"
     done
   fi
 
   if [[ ${#multiline_rels[@]} -gt 0 ]]; then
     echo ""
-    echo "Multiline (cat <file> to inspect):"
+    echo "${indent}Multiline (cat <file> to inspect):"
     for i in "${!multiline_rels[@]}"; do
-      printf "  %-${pad}s%s lines\n" "${multiline_rels[$i]}:" "${multiline_counts[$i]}"
+      printf "${indent}  %-${pad}s%s lines\n" "${multiline_rels[$i]}:" "${multiline_counts[$i]}"
     done
   fi
+}
 
-  echo ""
+# Build a "N no-newline, N one-newline, N multiline" string from counts.
+build_summary() {
+  local no_n="$1"
+  local one_n="$2"
+  local multi_n="$3"
+  local parts=()
+  [[ ${no_n} -gt 0 ]] && parts+=("${no_n} no-newline")
+  [[ ${one_n} -gt 0 ]] && parts+=("${one_n} one-newline")
+  [[ ${multi_n} -gt 0 ]] && parts+=("${multi_n} multiline")
 
-  # Build summary
-  local summary_parts=()
-  [[ ${#no_newline_rels[@]} -gt 0 ]] && summary_parts+=("${#no_newline_rels[@]} no-newline")
-  [[ ${#one_newline_rels[@]} -gt 0 ]] && summary_parts+=("${#one_newline_rels[@]} one-newline")
-  [[ ${#multiline_rels[@]} -gt 0 ]] && summary_parts+=("${#multiline_rels[@]} multiline")
-
-  local summary=""
-  for part in "${summary_parts[@]}"; do
-    if [[ -n "${summary}" ]]; then
-      summary+=", "
+  local out=""
+  local part
+  for part in "${parts[@]+"${parts[@]}"}"; do
+    if [[ -n "${out}" ]]; then
+      out+=", "
     fi
-    summary+="${part}"
+    out+="${part}"
   done
-  echo "Summary: ${summary}"
+  echo "${out}"
+}
+
+# Print listing for one project root (or current dir if empty).
+# Detects which of config/defaults exist and dispatches.
+#   $1 = filesystem prefix ("" for cwd, "<abs path>/" for branchout iteration)
+#   $2 = display name to append after "in" ("" for none, e.g. "group/group-alpha")
+# Returns 1 if neither exists.
+list_project() {
+  local prefix="$1"
+  local display_in="${2:-}"
+  local config_path="${prefix}${CONFIG_DIR}"
+  local defaults_path="${prefix}${DEFAULTS_DIR}"
+
+  local has_config=false
+  local has_defaults=false
+  [[ -d "${config_path}" ]] && has_config=true
+  [[ -d "${defaults_path}" ]] && has_defaults=true
+
+  if [[ "${has_config}" == "false" && "${has_defaults}" == "false" ]]; then
+    return 1
+  fi
+
+  local in_suffix=""
+  [[ -n "${display_in}" ]] && in_suffix=" in ${display_in}"
+
+  if [[ "${has_config}" == "true" && "${has_defaults}" == "true" ]]; then
+    echo "Listing ${CONFIG_DIR} and ${DEFAULTS_DIR}${in_suffix}:"
+
+    echo ""
+    echo "[${CONFIG_DIR}]"
+    print_categorised "${config_path}" "  "
+    local c_no=${LAST_NO_NEWLINE_COUNT} c_one=${LAST_ONE_NEWLINE_COUNT} c_multi=${LAST_MULTILINE_COUNT}
+    local c_total=$((c_no + c_one + c_multi))
+
+    echo ""
+    echo "[${DEFAULTS_DIR}]"
+    print_categorised "${defaults_path}" "  "
+    local d_no=${LAST_NO_NEWLINE_COUNT} d_one=${LAST_ONE_NEWLINE_COUNT} d_multi=${LAST_MULTILINE_COUNT}
+    local d_total=$((d_no + d_one + d_multi))
+
+    local config_summary defaults_summary
+    config_summary=$(build_summary "${c_no}" "${c_one}" "${c_multi}")
+    defaults_summary=$(build_summary "${d_no}" "${d_one}" "${d_multi}")
+    [[ -z "${config_summary}" ]] && config_summary="empty"
+    [[ -z "${defaults_summary}" ]] && defaults_summary="empty"
+
+    local label_width=${#CONFIG_DIR}
+    [[ ${#DEFAULTS_DIR} -gt ${label_width} ]] && label_width=${#DEFAULTS_DIR}
+    local pad=$((label_width + 2))
+
+    echo ""
+    echo "Summary:"
+    printf "  %-${pad}s %s\n" "${CONFIG_DIR}:" "${config_summary}"
+    printf "  %-${pad}s %s\n" "${DEFAULTS_DIR}:" "${defaults_summary}"
+    echo "  Total: $((c_total + d_total)) values"
+    return 0
+  fi
+
+  # Single-section mode
+  local path dir_name
+  if [[ "${has_config}" == "true" ]]; then
+    path="${config_path}"
+    dir_name="${CONFIG_DIR}"
+  else
+    path="${defaults_path}"
+    dir_name="${DEFAULTS_DIR}"
+  fi
+  echo "Listing ${dir_name}${in_suffix}:"
+  print_categorised "${path}" ""
+
+  if [[ "${LAST_HAS_ANY_FILES}" == "true" ]]; then
+    local summary
+    summary=$(build_summary "${LAST_NO_NEWLINE_COUNT}" "${LAST_ONE_NEWLINE_COUNT}" "${LAST_MULTILINE_COUNT}")
+    echo ""
+    echo "Summary: ${summary}"
+  fi
 }
 
 # List all projects in branchout tree
@@ -151,38 +247,64 @@ list_all_projects() {
   find_branchout_root
   echo "Found branchout root: ${BRANCHOUT_ROOT}"
 
-  # Find all project dirs with config
-  local project_dirs=()
-  while IFS= read -r -d '' dir; do
-    project_dirs+=("$dir")
-  done < <(find "${BRANCHOUT_ROOT}" -mindepth 4 -maxdepth 4 -type d -path "*/${CONFIG_DIR}" -print0 2>/dev/null | sort -z)
+  # Compute search depth from CONFIG_DIR/DEFAULTS_DIR segment count + 2 (group/project)
+  local config_segments defaults_segments
+  config_segments=$(awk -F/ '{print NF}' <<< "${CONFIG_DIR}")
+  defaults_segments=$(awk -F/ '{print NF}' <<< "${DEFAULTS_DIR}")
+  local config_depth=$((2 + config_segments))
+  local defaults_depth=$((2 + defaults_segments))
 
-  if [[ ${#project_dirs[@]} -eq 0 ]]; then
+  # Find directories matching either CONFIG_DIR or DEFAULTS_DIR suffix.
+  local hits=""
+  hits+=$(find "${BRANCHOUT_ROOT}" -mindepth "${config_depth}" -maxdepth "${config_depth}" -type d -path "*/${CONFIG_DIR}" 2>/dev/null)
+  if [[ -n "${hits}" ]]; then
+    hits+=$'\n'
+  fi
+  hits+=$(find "${BRANCHOUT_ROOT}" -mindepth "${defaults_depth}" -maxdepth "${defaults_depth}" -type d -path "*/${DEFAULTS_DIR}" 2>/dev/null)
+
+  if [[ -z "${hits}" ]]; then
     echo ""
-    echo "No projects found with ${CONFIG_DIR}"
+    echo "No projects found with ${CONFIG_DIR} or ${DEFAULTS_DIR}"
     exit 0
   fi
 
-  # Extract and display project names
+  # Strip the matched suffix to get project root
+  local project_roots=()
+  local seen="|"
+  local line root
+  while IFS= read -r line; do
+    [[ -z "${line}" ]] && continue
+    if [[ "${line}" == */"${CONFIG_DIR}" ]]; then
+      root="${line%/"${CONFIG_DIR}"}"
+    elif [[ "${line}" == */"${DEFAULTS_DIR}" ]]; then
+      root="${line%/"${DEFAULTS_DIR}"}"
+    else
+      continue
+    fi
+    if [[ "${seen}" != *"|${root}|"* ]]; then
+      seen+="${root}|"
+      project_roots+=("${root}")
+    fi
+  done <<< "${hits}"
+
+  # Sort project_roots for stable output
+  local sorted_roots=()
+  while IFS= read -r line; do
+    sorted_roots+=("${line}")
+  done < <(printf '%s\n' "${project_roots[@]}" | sort)
+
   echo ""
-  echo "Found ${#project_dirs[@]} project(s) with ${CONFIG_DIR}:"
+  echo "Found ${#sorted_roots[@]} project(s) with ${CONFIG_DIR} or ${DEFAULTS_DIR}:"
   echo ""
-  local projects=()
-  for dir in "${project_dirs[@]}"; do
-    local rel_path="${dir#${BRANCHOUT_ROOT}/}"
-    local project="${rel_path%/${CONFIG_DIR}}"
-    projects+=("${project}")
-    echo "  ${project}"
+  local r
+  for r in "${sorted_roots[@]}"; do
+    echo "  ${r#"${BRANCHOUT_ROOT}/"}"
   done
 
-  # List each project
   local listed=0
-  for i in "${!project_dirs[@]}"; do
-    local config_path="${project_dirs[$i]}"
-    local project="${projects[$i]}"
+  for r in "${sorted_roots[@]}"; do
     echo ""
-    echo "Listing ${CONFIG_DIR} in ${project}:"
-    list_config_dir "${config_path}"
+    list_project "${r}/" "${r#"${BRANCHOUT_ROOT}/"}"
     listed=$((listed + 1))
   done
 
@@ -204,6 +326,17 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       CONFIG_DIR="$2"
+      CONFIG_DIR_EXPLICIT=true
+      shift 2
+      ;;
+    --defaults-dir)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --defaults-dir requires a value" >&2
+        usage
+        exit 1
+      fi
+      DEFAULTS_DIR="$2"
+      DEFAULTS_DIR_EXPLICIT=true
       shift 2
       ;;
     --all)
@@ -218,19 +351,31 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Reject absolute paths for --dir
+# Reject absolute paths
 if [[ "${CONFIG_DIR}" == /* ]]; then
   echo "ERROR: --dir must be a relative path, i.e. a sub path of this repo" >&2
+  exit 1
+fi
+if [[ "${DEFAULTS_DIR}" == /* ]]; then
+  echo "ERROR: --defaults-dir must be a relative path, i.e. a sub path of this repo" >&2
   exit 1
 fi
 
 if [[ "${ALL_PROJECTS}" == "true" ]]; then
   list_all_projects
 else
-  if [[ ! -d "${CONFIG_DIR}" ]]; then
+  # Explicit-flag missing-dir validation
+  if [[ "${CONFIG_DIR_EXPLICIT}" == "true" && ! -d "${CONFIG_DIR}" ]]; then
     echo "ERROR: Config directory not found: ${CONFIG_DIR}" >&2
     exit 1
   fi
-  echo "Listing config in ${CONFIG_DIR}:"
-  list_config_dir "${CONFIG_DIR}"
+  if [[ "${DEFAULTS_DIR_EXPLICIT}" == "true" && ! -d "${DEFAULTS_DIR}" ]]; then
+    echo "ERROR: Defaults directory not found: ${DEFAULTS_DIR}" >&2
+    exit 1
+  fi
+
+  if ! list_project ""; then
+    echo "ERROR: Neither ${CONFIG_DIR} nor ${DEFAULTS_DIR} exists" >&2
+    exit 1
+  fi
 fi

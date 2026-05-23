@@ -39,6 +39,7 @@ describe_command() {
     rotate-key-for-secrets) echo "Rotate encryption key for secrets" ;;
     build)                  echo "Build a kaptain project locally" ;;
     clean-project)          echo "Clean build output directories" ;;
+    update)                 echo "Update whatever comes after this" ;;
     setup)                  echo "Interactive workstation setup" ;;
     *)                      echo "" ;;
   esac
@@ -103,8 +104,10 @@ Utility Commands:
   kaptain list manifests [--dir DIR] [--all]
     List Kubernetes manifest files and their line counts
 
-  kaptain list config [--dir DIR] [--all]
-    List config with key/token-name on the left and value to right
+  kaptain list config [--dir DIR] [--defaults-dir DIR] [--all]
+    List config and defaults with key/token-name on the left and value to right
+    --dir           Config directory (default: src/config)
+    --defaults-dir  Defaults directory (default: src/defaults)
 
   kaptain list secrets [--dir DIR] [--all] [-v|--verbose]
     List encrypted files and unencrypted raw input and extracted output files
@@ -145,6 +148,21 @@ Build Commands:
     Remove build output directories (kaptain-out/ and kaptainpm/).
     --dir     Output directory to clean (default: kaptain-out)
 
+  kaptain update versions [flags]
+    Update version specifications in KaptainPM.yaml files using build-script
+    registry/range machinery. Default tightens lower bounds of ranges in
+    spec.layers, spec.templates and spec.contents.
+    --update-lower-bounds      Default. Tighten range lower bounds.
+    --no-update-lower-bounds   Opt out of lower-bound updates.
+    --update-fixed             Bump exact refs to absolute highest.
+    --update-ranges            Roll ranges across upper bound.
+    --api-version              Bump apiVersion to highest schema.
+    --update-all               Equivalent to all four update axes.
+    --all                      Walk branchout tree, apply to every sibling repo.
+    --file FILE                Operate on exactly one file.
+    --dry-run                  Preview changes; do not write.
+    Requires KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set.
+
 Setup Commands:
   kaptain setup brew [--copy-fred] [--apps-in-home]
     Interactive Homebrew setup for Kaptain users. Walks through suggest-ask-
@@ -157,6 +175,7 @@ Setup Commands:
 Default Override Environment Variables:
   KAPTAIN_USER_SCRIPTS_SECRETS_DIR              Secrets directory (default: src/secrets)
   KAPTAIN_USER_SCRIPTS_CONFIG_DIR               Config directory (default: src/config)
+  KAPTAIN_USER_SCRIPTS_DEFAULTS_DIR             Defaults directory (default: src/defaults)
   KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR            Manifests directory (default: src/kubernetes)
   KAPTAIN_USER_SCRIPTS_ENCRYPTION_TYPE          Encryption type (default: age)
   KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT  Build scripts repo location (required for build)
