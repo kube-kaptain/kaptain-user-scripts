@@ -144,8 +144,8 @@ create_file_with_time() {
 
   run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Listing config in"* ]]
-  [[ "$output" == *"No files found"* ]]
+  [[ "$output" == *"Listing ${TEST_LIST}/config:"* ]] || false
+  [[ "$output" == *"No files found"* ]] || false
 }
 
 @test "list-config: neither config nor defaults dir exists fails" {
@@ -220,10 +220,10 @@ create_file_with_time() {
 
   run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Listing config in"* ]]
-  [[ "$output" == *"One newline (consider stripping):"* ]]
-  [[ "$output" == *"hostname:"*"localhost"* ]]
-  [[ "$output" == *"1 one-newline"* ]]
+  [[ "$output" == *"Listing ${TEST_LIST}/config:"* ]] || false
+  [[ "$output" == *"One newline (consider stripping):"* ]] || false
+  [[ "$output" == *"hostname:"*"localhost"* ]] || false
+  [[ "$output" == *"1 one-newline"* ]] || false
 }
 
 @test "list-config: nested file shows relative path" {
@@ -278,8 +278,8 @@ create_file_with_time() {
 
   run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/my-config"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"Listing config in ${TEST_LIST}/my-config"* ]]
-  [[ "$output" == *"key:"*"custom-value"* ]]
+  [[ "$output" == *"Listing ${TEST_LIST}/my-config:"* ]] || false
+  [[ "$output" == *"key:"*"custom-value"* ]] || false
 }
 
 # =============================================================================

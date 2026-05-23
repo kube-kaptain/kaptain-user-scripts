@@ -81,16 +81,18 @@ see the [Encryption Walkthrough](EncryptionWalkthrough.md).
 
 ### Build
 
-| Script                  | Description                       |
-|-------------------------|-----------------------------------|
-| `kaptain-build`         | Build a kaptain project locally   |
-| `kaptain-clean-project` | Clean build output directories    |
+| Script                    | Description                                                |
+|---------------------------|------------------------------------------------------------|
+| `kaptain-build`           | Build a kaptain project locally                            |
+| `kaptain-clean-project`   | Clean build output directories                             |
+| `kaptain-update`          | Route to update sub-commands (versions, etc.)              |
+| `kaptain-update-versions` | Update version refs and apiVersion in KaptainPM.yaml files |
 
 ### Setup
 
-| Script                | Description                                                |
-|-----------------------|------------------------------------------------------------|
-| `kaptain-setup-brew`  | Interactive Homebrew setup for Kaptain users (macOS/Linux) |
+| Script               | Description                                                |
+|----------------------|------------------------------------------------------------|
+| `kaptain-setup-brew` | Interactive Homebrew setup for Kaptain users (macOS/Linux) |
 
 `kaptain setup brew` walks through suggest-ask-remember prompts covering core
 build deps, Branchout + kaptain workspace, helm, shell-dev tools, GUI helpers,

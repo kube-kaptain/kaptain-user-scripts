@@ -1,0 +1,701 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Update version specifications inside KaptainPM.yaml files using the
+# build-script registry/range machinery.
+#
+# Default: tighten lower bounds of ranges in spec.layers / spec.templates /
+# spec.contents to the highest available version. Opt-in flags broaden the
+# scope (fixed bumps, cross-boundary range rolls, apiVersion bump, all four,
+# branchout-tree walk).
+#
+# Run from a Kaptain project repo root, anywhere in a branchout project tree
+# with --all, or anywhere with --file FILE).
+#
+# Usage: kaptain-update-versions [flags]
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+UPDATE_LOWER_BOUNDS=true
+UPDATE_FIXED=false
+UPDATE_RANGES=false
+UPDATE_API_VERSION=false
+ALL_PROJECTS=false
+FILE_OVERRIDE=""
+DRY_RUN=false
+
+usage() {
+  cat <<'EOF'
+Usage: kaptain update versions [flags]
+
+Update version specifications inside KaptainPM.yaml files using build-script
+machinery. Default tightens lower bounds of ranges in spec.layers, spec.templates
+and spec.contents to the highest available release version.
+
+Flags:
+  --update-lower-bounds      Default. Tighten lower bound of each range to highest match.
+  --no-update-lower-bounds   Opt out of lower-bound updates.
+  --update-fixed             Bump exact refs (1.3, [1.2]) to absolute highest.
+  --update-ranges            Roll ranges across upper bound when highest >= upper.
+  --api-version              Bump apiVersion to highest schema in build scripts.
+  --update-all               Equivalent to all four update axes above.
+  --all                      Walk branchout tree and apply to every sibling repo.
+  --file FILE                Operate on exactly one file (instead of auto-discovery).
+  --dry-run                  Preview changes; do not write.
+  -h, --help                 Show this help.
+
+Requires KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set.
+EOF
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --update-lower-bounds)
+      UPDATE_LOWER_BOUNDS=true
+      shift
+      ;;
+    --no-update-lower-bounds)
+      UPDATE_LOWER_BOUNDS=false
+      shift
+      ;;
+    --update-fixed)
+      UPDATE_FIXED=true
+      shift
+      ;;
+    --update-ranges)
+      UPDATE_RANGES=true
+      shift
+      ;;
+    --api-version)
+      UPDATE_API_VERSION=true
+      shift
+      ;;
+    --update-all)
+      UPDATE_LOWER_BOUNDS=true
+      UPDATE_FIXED=true
+      UPDATE_RANGES=true
+      UPDATE_API_VERSION=true
+      shift
+      ;;
+    --all)
+      ALL_PROJECTS=true
+      shift
+      ;;
+    --file)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --file requires a value" >&2
+        usage >&2
+        exit 1
+      fi
+      FILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+# --all and --file are mutually exclusive
+if [[ "${ALL_PROJECTS}" == "true" && -n "${FILE_OVERRIDE}" ]]; then
+  echo "ERROR: --all and --file are mutually exclusive" >&2
+  exit 1
+fi
+
+# Gate 1: build scripts repo
+if [[ -z "${KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT:-}" ]]; then
+  echo "ERROR: KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT is not set." >&2
+  echo "" >&2
+  echo "To use kaptain update versions, clone the build scripts repo and set this variable:" >&2
+  echo "" >&2
+  echo "  git clone <build-scripts-repo-url>" >&2
+  echo "  cd <build-scripts-repo>" >&2
+  echo "  git checkout <version>" >&2
+  echo "  export KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT=\"\$(pwd)\"" >&2
+  exit 1
+fi
+
+BUILD_ROOT="${KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT}"
+
+if [[ ! -d "${BUILD_ROOT}" ]]; then
+  echo "ERROR: Build scripts repo root does not exist: ${BUILD_ROOT}" >&2
+  exit 1
+fi
+if [[ ! -d "${BUILD_ROOT}/src/scripts" ]]; then
+  echo "ERROR: Build scripts repo missing src/scripts: ${BUILD_ROOT}/src/scripts" >&2
+  exit 1
+fi
+if [[ ! -d "${BUILD_ROOT}/src/schemas" ]]; then
+  echo "ERROR: Build scripts repo missing src/schemas: ${BUILD_ROOT}/src/schemas" >&2
+  exit 1
+fi
+
+# Gate 2: yq
+if ! command -v yq &>/dev/null; then
+  echo "ERROR: yq is required but not found on PATH" >&2
+  exit 1
+fi
+
+# Gate 3: artifact-resolve (only needed for axes that hit the registry)
+ARTIFACT_RESOLVE="${BUILD_ROOT}/src/scripts/util/artifact-resolve"
+if [[ "${UPDATE_LOWER_BOUNDS}" == "true" || "${UPDATE_FIXED}" == "true" || "${UPDATE_RANGES}" == "true" ]]; then
+  if [[ ! -x "${ARTIFACT_RESOLVE}" ]]; then
+    echo "ERROR: artifact-resolve not found or not executable: ${ARTIFACT_RESOLVE}" >&2
+    exit 1
+  fi
+fi
+
+# Source version-range library — provides version_compare/_ge/_gt/_le/_lt,
+# version_is_exact, version_unwrap_exact, version_filter_release,
+# version_resolve_range. It calls log_error on its failure paths, so we
+# stub the log functions in case they aren't loaded by the caller.
+VERSION_RANGE_LIB="${BUILD_ROOT}/src/scripts/lib/version-range.bash"
+if [[ ! -f "${VERSION_RANGE_LIB}" ]]; then
+  echo "ERROR: version-range library not found: ${VERSION_RANGE_LIB}" >&2
+  exit 1
+fi
+if ! declare -f log_error >/dev/null 2>&1; then
+  log_error() { echo "ERROR: $*" >&2; }
+fi
+if ! declare -f log_warning >/dev/null 2>&1; then
+  log_warning() { echo "WARN: $*" >&2; }
+fi
+if ! declare -f log >/dev/null 2>&1; then
+  log() { echo "$*" >&2; }
+fi
+# shellcheck disable=SC1090
+source "${VERSION_RANGE_LIB}"
+
+# -----------------------------------------------------------------------------
+# Discovery
+# -----------------------------------------------------------------------------
+
+# Find branchout root by walking up from cwd. Mirrors the pattern used by
+# kaptain-list-secrets / kaptain-list-config / etc.
+find_branchout_root() {
+  local dir="${PWD}"
+  BRANCHOUT_PROJECTS_DIRECTORY="${BRANCHOUT_PROJECTS_DIRECTORY:-projects}"
+  # shellcheck disable=SC1091
+  test -f ~/.config/branchoutrc && source ~/.config/branchoutrc
+  local home_projects="${HOME}/${BRANCHOUT_PROJECTS_DIRECTORY}"
+
+  if [[ "${dir}" != "${home_projects}/"* ]]; then
+    echo "ERROR: Not under ${home_projects}/, cannot find branchout tree" >&2
+    echo "ERROR: Cannot perform --all version update without a valid structure" >&2
+    exit 1
+  fi
+
+  while [[ "${dir}" != "${home_projects}" && "${dir}" != "/" ]]; do
+    if [[ -f "${dir}/Branchoutfile" && -f "${dir}/Branchoutprojects" ]]; then
+      BRANCHOUT_ROOT="${dir}"
+      return 0
+    fi
+    dir=$(dirname "${dir}")
+  done
+
+  echo "ERROR: Branchout root not found" >&2
+  echo "ERROR: Cannot perform --all version update without a valid structure" >&2
+  exit 1
+}
+
+# Discover all KaptainPM.yaml files at the three known locations under a
+# single project root. Appends matches to TARGET_FILES.
+discover_in_project() {
+  local root="$1"
+  local candidate
+  for candidate in \
+    "${root}/KaptainPM.yaml" \
+    "${root}/src/layer/KaptainPM.yaml" \
+    "${root}/src/layerset/KaptainPM.yaml"; do
+    if [[ -f "${candidate}" ]]; then
+      TARGET_FILES+=("${candidate}")
+    fi
+  done
+}
+
+TARGET_FILES=()
+if [[ -n "${FILE_OVERRIDE}" ]]; then
+  if [[ ! -f "${FILE_OVERRIDE}" ]]; then
+    echo "ERROR: --file not found: ${FILE_OVERRIDE}" >&2
+    exit 1
+  fi
+  TARGET_FILES+=("${FILE_OVERRIDE}")
+elif [[ "${ALL_PROJECTS}" == "true" ]]; then
+  find_branchout_root
+  echo "Found branchout root: ${BRANCHOUT_ROOT}"
+  # Project dirs are at depth 2 (group/group-project) under the branchout root.
+  while IFS= read -r -d '' project_dir; do
+    discover_in_project "${project_dir}"
+  done < <(find "${BRANCHOUT_ROOT}" -mindepth 2 -maxdepth 2 -type d -print0 2>/dev/null | sort -z)
+else
+  discover_in_project "."
+fi
+
+if [[ ${#TARGET_FILES[@]} -eq 0 ]]; then
+  if [[ "${ALL_PROJECTS}" == "true" ]]; then
+    echo "No KaptainPM.yaml files found under branchout root" >&2
+  elif [[ -n "${FILE_OVERRIDE}" ]]; then
+    echo "ERROR: --file not found: ${FILE_OVERRIDE}" >&2
+  else
+    echo "ERROR: No KaptainPM.yaml found at any of: KaptainPM.yaml, src/layer/KaptainPM.yaml, src/layerset/KaptainPM.yaml" >&2
+  fi
+  exit 1
+fi
+
+# -----------------------------------------------------------------------------
+# Version / range helpers
+# -----------------------------------------------------------------------------
+
+# Split a ref of the form [provider|][prefix/]name:version-or-range into
+# REF_NAME (everything up to the last colon) and REF_VERSION (after).
+# Sets REF_NAME and REF_VERSION.
+split_ref() {
+  local ref="$1"
+  REF_NAME="${ref%:*}"
+  REF_VERSION="${ref##*:}"
+}
+
+# Return the number of dot-separated segments in a version string.
+segment_depth() {
+  local v="$1"
+  local -a parts
+  IFS='.' read -ra parts <<< "${v}"
+  echo "${#parts[@]}"
+}
+
+# Truncate or pad version v to the requested segment depth.
+truncate_pad() {
+  local v="$1"
+  local depth="$2"
+  local -a parts
+  IFS='.' read -ra parts <<< "${v}"
+  local i out=""
+  for ((i = 0; i < depth; i++)); do
+    local seg="${parts[i]:-0}"
+    if [[ -z "${out}" ]]; then
+      out="${seg}"
+    else
+      out="${out}.${seg}"
+    fi
+  done
+  echo "${out}"
+}
+
+# Find the rightmost non-zero segment index of v. Zero-only versions return 0.
+rightmost_nonzero_segment() {
+  local v="$1"
+  local -a parts
+  IFS='.' read -ra parts <<< "${v}"
+  local i level=0
+  for ((i = 0; i < ${#parts[@]}; i++)); do
+    if [[ "${parts[i]}" != "0" ]]; then
+      level="${i}"
+    fi
+  done
+  echo "${level}"
+}
+
+# Increment the segment of v at `level` by 1, zero everything after, then
+# truncate/pad to `depth`.
+bump_segment_to_depth() {
+  local v="$1"
+  local level="$2"
+  local depth="$3"
+  local -a parts
+  IFS='.' read -ra parts <<< "${v}"
+  local i out=""
+  for ((i = 0; i < depth; i++)); do
+    local seg
+    if (( i < level )); then
+      seg="${parts[i]:-0}"
+    elif (( i == level )); then
+      seg=$(( ${parts[i]:-0} + 1 ))
+    else
+      seg=0
+    fi
+    if [[ -z "${out}" ]]; then
+      out="${seg}"
+    else
+      out="${out}.${seg}"
+    fi
+  done
+  echo "${out}"
+}
+
+# Parse a range into LOWER_BRACKET, LOWER_VERSION, UPPER_VERSION,
+# UPPER_BRACKET. Returns 0 if range, 1 if not a range.
+parse_range() {
+  local r="$1"
+  if version_is_exact "${r}"; then
+    return 1
+  fi
+  LOWER_BRACKET="${r:0:1}"
+  UPPER_BRACKET="${r: -1}"
+  local inner="${r:1:${#r}-2}"
+  LOWER_VERSION="${inner%%,*}"
+  UPPER_VERSION="${inner#*,}"
+  LOWER_VERSION="${LOWER_VERSION// /}"
+  UPPER_VERSION="${UPPER_VERSION// /}"
+  return 0
+}
+
+# Reassemble a range string from its parts.
+assemble_range() {
+  local lb="$1" lv="$2" uv="$3" ub="$4"
+  echo "${lb}${lv},${uv}${ub}"
+}
+
+# -----------------------------------------------------------------------------
+# Registry resolution
+# -----------------------------------------------------------------------------
+
+RESOLVE_TMPDIR="$(mktemp -d -t kaptain-update-versions.XXXXXX)"
+trap 'rm -rf "${RESOLVE_TMPDIR}"' EXIT
+
+# Resolve a single ref against the registry. IS_RELEASE=true so prereleases
+# are filtered. Sets RESOLVED_VERSION (the version part, no name).
+# Returns 0 on success, 1 if artifact-resolve failed.
+resolve_to_version() {
+  local ref="$1"
+  local safe="${ref//[^a-zA-Z0-9._-]/_}"
+  local out="${RESOLVE_TMPDIR}/${safe}"
+  rm -f "${out}"
+  if ! IS_RELEASE=true "${ARTIFACT_RESOLVE}" "${ref}" "${out}" 2>/dev/null; then
+    return 1
+  fi
+  local resolved
+  resolved="$(<"${out}")"
+  RESOLVED_VERSION="${resolved##*:}"
+  return 0
+}
+
+# Resolve a ref's name@absolute-highest using a wildcard range.
+# Sets HIGHEST_VERSION.
+resolve_highest() {
+  local name="$1"
+  # `[0,)` matches every numeric version. IS_RELEASE filters prereleases out.
+  resolve_to_version "${name}:[0,)"
+  HIGHEST_VERSION="${RESOLVED_VERSION:-}"
+  [[ -n "${HIGHEST_VERSION}" ]]
+}
+
+# Resolve a ref's existing range/exact to the matching highest.
+# Sets MATCH_VERSION (the version inside the range).
+resolve_match() {
+  local ref="$1"
+  resolve_to_version "${ref}"
+  MATCH_VERSION="${RESOLVED_VERSION:-}"
+  [[ -n "${MATCH_VERSION}" ]]
+}
+
+# -----------------------------------------------------------------------------
+# Range-update algorithm
+# -----------------------------------------------------------------------------
+
+# Apply the --update-ranges algorithm. Sets NEW_RANGE on success.
+# Falls back to lower-bound tighten when H is inside the existing upper.
+compute_updated_range() {
+  local range="$1" highest="$2"
+  parse_range "${range}" || return 1
+
+  local new_lower new_upper
+  if [[ -z "${UPPER_VERSION}" ]]; then
+    # No upper: leave upper open, lift lower if needed.
+    if [[ -z "${LOWER_VERSION}" ]]; then
+      # Both empty (rare): leave alone.
+      return 1
+    fi
+    local ldepth
+    ldepth="$(segment_depth "${LOWER_VERSION}")"
+    new_lower="$(truncate_pad "${highest}" "${ldepth}")"
+    NEW_RANGE="$(assemble_range "${LOWER_BRACKET}" "${new_lower}" "" "${UPPER_BRACKET}")"
+    return 0
+  fi
+
+  # Decide if H is inside the existing upper.
+  local in_range=false
+  if version_lt "${highest}" "${UPPER_VERSION}"; then
+    in_range=true
+  fi
+
+  local udepth
+  udepth="$(segment_depth "${UPPER_VERSION}")"
+
+  if [[ "${in_range}" == "true" ]]; then
+    # Tighten lower only; upper unchanged.
+    if [[ -z "${LOWER_VERSION}" ]]; then
+      # No lower to lift: leave alone.
+      return 1
+    fi
+    local ldepth
+    ldepth="$(segment_depth "${LOWER_VERSION}")"
+    new_lower="$(truncate_pad "${highest}" "${ldepth}")"
+    NEW_RANGE="$(assemble_range "${LOWER_BRACKET}" "${new_lower}" "${UPPER_VERSION}" "${UPPER_BRACKET}")"
+    return 0
+  fi
+
+  # H >= upper: bump upper segment at U's bound level.
+  local level
+  level="$(rightmost_nonzero_segment "${UPPER_VERSION}")"
+  new_upper="$(bump_segment_to_depth "${highest}" "${level}" "${udepth}")"
+
+  if [[ -z "${LOWER_VERSION}" ]]; then
+    new_lower=""
+  else
+    local ldepth
+    ldepth="$(segment_depth "${LOWER_VERSION}")"
+    new_lower="$(truncate_pad "${highest}" "${ldepth}")"
+  fi
+
+  NEW_RANGE="$(assemble_range "${LOWER_BRACKET}" "${new_lower}" "${new_upper}" "${UPPER_BRACKET}")"
+  return 0
+}
+
+# Tighten only the lower bound of a range. Sets NEW_RANGE.
+compute_tightened_lower() {
+  local range="$1" highest="$2"
+  parse_range "${range}" || return 1
+  if [[ -z "${LOWER_VERSION}" ]]; then
+    return 1
+  fi
+  if ! version_gt "${highest}" "${LOWER_VERSION}"; then
+    return 1
+  fi
+  local ldepth new_lower
+  ldepth="$(segment_depth "${LOWER_VERSION}")"
+  new_lower="$(truncate_pad "${highest}" "${ldepth}")"
+  NEW_RANGE="$(assemble_range "${LOWER_BRACKET}" "${new_lower}" "${UPPER_VERSION}" "${UPPER_BRACKET}")"
+  return 0
+}
+
+# -----------------------------------------------------------------------------
+# Per-entry processing
+# -----------------------------------------------------------------------------
+
+# Accumulators. Each entry is "${file}|${location}|${before}|${after}".
+CHANGES=()
+SKIPS=()
+
+# Process one entry. Decides which axis applies and accumulates a change row.
+# Arguments: file, location, full_ref
+process_entry() {
+  local file="$1" location="$2" ref="$3"
+  split_ref "${ref}"
+  local name="${REF_NAME}" version="${REF_VERSION}"
+
+  if [[ "${version}" == *-PRERELEASE* ]]; then
+    SKIPS+=("${file}|${location}|${ref}|PRERELEASE references are local-only and not updated")
+    return 0
+  fi
+
+  if version_is_exact "${version}"; then
+    if [[ "${UPDATE_FIXED}" != "true" ]]; then
+      return 0
+    fi
+    # Determine bracket style to preserve [N] vs N
+    local bracketed=false
+    local plain
+    plain="$(version_unwrap_exact "${version}")"
+    if [[ "${version}" != "${plain}" ]]; then
+      bracketed=true
+    fi
+    if ! resolve_highest "${name}"; then
+      SKIPS+=("${file}|${location}|${ref}|could not query registry for highest")
+      return 0
+    fi
+    if ! version_gt "${HIGHEST_VERSION}" "${plain}"; then
+      return 0
+    fi
+    local target_depth
+    target_depth="$(segment_depth "${plain}")"
+    local new_plain
+    new_plain="$(truncate_pad "${HIGHEST_VERSION}" "${target_depth}")"
+    local new_version
+    if [[ "${bracketed}" == "true" ]]; then
+      new_version="[${new_plain}]"
+    else
+      new_version="${new_plain}"
+    fi
+    local new_ref="${name}:${new_version}"
+    if [[ "${new_ref}" != "${ref}" ]]; then
+      CHANGES+=("${file}|${location}|${ref}|${new_ref}")
+    fi
+    return 0
+  fi
+
+  # It's a range.
+  if [[ "${UPDATE_RANGES}" == "true" ]]; then
+    if ! resolve_highest "${name}"; then
+      SKIPS+=("${file}|${location}|${ref}|could not query registry for highest")
+      return 0
+    fi
+    if compute_updated_range "${version}" "${HIGHEST_VERSION}"; then
+      local new_ref="${name}:${NEW_RANGE}"
+      if [[ "${new_ref}" != "${ref}" ]]; then
+        CHANGES+=("${file}|${location}|${ref}|${new_ref}")
+      fi
+    fi
+    return 0
+  fi
+
+  if [[ "${UPDATE_LOWER_BOUNDS}" == "true" ]]; then
+    # Resolve the range to its current highest match; that's our new lower.
+    if ! resolve_match "${ref}"; then
+      SKIPS+=("${file}|${location}|${ref}|could not resolve range against registry")
+      return 0
+    fi
+    if compute_tightened_lower "${version}" "${MATCH_VERSION}"; then
+      local new_ref="${name}:${NEW_RANGE}"
+      if [[ "${new_ref}" != "${ref}" ]]; then
+        CHANGES+=("${file}|${location}|${ref}|${new_ref}")
+      fi
+    fi
+    return 0
+  fi
+}
+
+# -----------------------------------------------------------------------------
+# apiVersion discovery
+# -----------------------------------------------------------------------------
+
+# Read the schema version directly from BUILD_ROOT/src/schemas/version.
+# Sets CURRENT_API_VERSION. Exits hard if the file is missing or empty.
+read_schema_version() {
+  local version_file="${BUILD_ROOT}/src/schemas/version"
+  if [[ ! -f "${version_file}" ]]; then
+    echo "ERROR: Schema version file not found: ${version_file}" >&2
+    exit 1
+  fi
+  CURRENT_API_VERSION="$(tr -d '[:space:]' < "${version_file}")"
+  if [[ -z "${CURRENT_API_VERSION}" ]]; then
+    echo "ERROR: Schema version file is empty: ${version_file}" >&2
+    exit 1
+  fi
+}
+
+# -----------------------------------------------------------------------------
+# File processing
+# -----------------------------------------------------------------------------
+
+process_file() {
+  local file="$1"
+
+  if [[ "${UPDATE_LOWER_BOUNDS}" == "true" || "${UPDATE_FIXED}" == "true" || "${UPDATE_RANGES}" == "true" ]]; then
+    local section
+    for section in layers templates contents; do
+      local count
+      count="$(yq -r ".spec.${section} // [] | length" "${file}")"
+      if [[ "${count}" -eq 0 ]]; then
+        continue
+      fi
+      local i
+      for ((i = 0; i < count; i++)); do
+        local entry
+        entry="$(yq -r ".spec.${section}[${i}]" "${file}")"
+        process_entry "${file}" "spec.${section}[${i}]" "${entry}"
+      done
+    done
+  fi
+
+  if [[ "${UPDATE_API_VERSION}" == "true" ]]; then
+    local current
+    current="$(yq -r '.apiVersion // ""' "${file}")"
+    if [[ -n "${current}" && "${current}" == kaptain.org/* ]]; then
+      local current_ver="${current#kaptain.org/}"
+      local target="kaptain.org/${CURRENT_API_VERSION}"
+      if version_gt "${CURRENT_API_VERSION}" "${current_ver}"; then
+        CHANGES+=("${file}|apiVersion|${current}|${target}")
+      fi
+    fi
+  fi
+}
+
+if [[ "${UPDATE_API_VERSION}" == "true" ]]; then
+  read_schema_version
+fi
+
+for file in "${TARGET_FILES[@]}"; do
+  process_file "${file}"
+done
+
+# -----------------------------------------------------------------------------
+# Output
+# -----------------------------------------------------------------------------
+
+# Compute column widths across all change rows.
+CHANGES_COUNT=${#CHANGES[@]}
+SKIPS_COUNT=${#SKIPS[@]}
+
+W_FILE=0
+W_LOC=0
+W_BEFORE=0
+W_AFTER=0
+if [[ ${CHANGES_COUNT} -gt 0 ]]; then
+  for row in "${CHANGES[@]}"; do
+    IFS='|' read -r f l b a <<< "${row}"
+    (( ${#f} > W_FILE ))   && W_FILE="${#f}"
+    (( ${#l} > W_LOC ))    && W_LOC="${#l}"
+    (( ${#b} > W_BEFORE )) && W_BEFORE="${#b}"
+    (( ${#a} > W_AFTER ))  && W_AFTER="${#a}"
+  done
+
+  printf -v fmt '%%-%ds %%-%ds %%-%ds  →  %%-%ds\n' \
+    "$((W_FILE + 1))" "$((W_LOC + 1))" "$((W_BEFORE + 1))" "$((W_AFTER + 1))"
+  for row in "${CHANGES[@]}"; do
+    IFS='|' read -r f l b a <<< "${row}"
+    # shellcheck disable=SC2059
+    printf "${fmt}" "${f}" "${l}" "${b}" "${a}"
+  done
+fi
+
+if [[ ${SKIPS_COUNT} -gt 0 ]]; then
+  echo ""
+  for row in "${SKIPS[@]}"; do
+    IFS='|' read -r f l ref reason <<< "${row}"
+    echo "SKIP  ${f}  ${l}  ${ref}  —  ${reason}"
+  done
+fi
+
+# Apply changes (unless dry-run)
+if [[ "${DRY_RUN}" != "true" && ${CHANGES_COUNT} -gt 0 ]]; then
+  # Track unique files via a delimited string — empty-array indexing under
+  # `set -u` on Bash 3.2 is unsafe.
+  files_seen=""
+  files_count=0
+  for row in "${CHANGES[@]}"; do
+    IFS='|' read -r f l _ a <<< "${row}"
+    if [[ "|${files_seen}|" != *"|${f}|"* ]]; then
+      files_seen="${files_seen:+${files_seen}|}${f}"
+      files_count=$((files_count + 1))
+    fi
+    if [[ "${l}" == "apiVersion" ]]; then
+      yq eval -i ".apiVersion = \"${a}\"" "${f}"
+    else
+      # location is e.g. spec.layers[0]
+      yq eval -i ".${l} = \"${a}\"" "${f}"
+    fi
+  done
+  files_list="${files_seen//|/ }"
+  echo ""
+  echo "${CHANGES_COUNT} change(s) applied across ${files_count} file(s)."
+  echo "Review with: git diff ${files_list}"
+  echo "Commit with: git add ${files_list} && git commit -m 'Update versions'"
+elif [[ ${CHANGES_COUNT} -gt 0 ]]; then
+  echo ""
+  echo "${CHANGES_COUNT} change(s) would be applied (dry run)."
+elif [[ ${SKIPS_COUNT} -eq 0 ]]; then
+  echo "No changes."
+fi

@@ -39,6 +39,7 @@ describe_command() {
     rotate-key-for-secrets) echo "Rotate encryption key for secrets" ;;
     build)                  echo "Build a kaptain project locally" ;;
     clean-project)          echo "Clean build output directories" ;;
+    update)                 echo "Update whatever comes after this" ;;
     setup)                  echo "Interactive workstation setup" ;;
     *)                      echo "" ;;
   esac
@@ -146,6 +147,21 @@ Build Commands:
   kaptain clean project [--dir DIR]
     Remove build output directories (kaptain-out/ and kaptainpm/).
     --dir     Output directory to clean (default: kaptain-out)
+
+  kaptain update versions [flags]
+    Update version specifications in KaptainPM.yaml files using build-script
+    registry/range machinery. Default tightens lower bounds of ranges in
+    spec.layers, spec.templates and spec.contents.
+    --update-lower-bounds      Default. Tighten range lower bounds.
+    --no-update-lower-bounds   Opt out of lower-bound updates.
+    --update-fixed             Bump exact refs to absolute highest.
+    --update-ranges            Roll ranges across upper bound.
+    --api-version              Bump apiVersion to highest schema.
+    --update-all               Equivalent to all four update axes.
+    --all                      Walk branchout tree, apply to every sibling repo.
+    --file FILE                Operate on exactly one file.
+    --dry-run                  Preview changes; do not write.
+    Requires KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set.
 
 Setup Commands:
   kaptain setup brew [--copy-fred] [--apps-in-home]
