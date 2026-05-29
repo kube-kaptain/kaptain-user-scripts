@@ -158,15 +158,8 @@ if [[ "${UPDATE_LOWER_BOUNDS}" == "true" || "${UPDATE_FIXED}" == "true" || "${UP
   fi
 fi
 
-# Source version-range library — provides version_compare/_ge/_gt/_le/_lt,
-# version_is_exact, version_unwrap_exact, version_filter_release,
-# version_resolve_range. It calls log_error on its failure paths, so we
-# stub the log functions in case they aren't loaded by the caller.
-VERSION_RANGE_LIB="${BUILD_ROOT}/src/scripts/lib/version-range.bash"
-if [[ ! -f "${VERSION_RANGE_LIB}" ]]; then
-  echo "ERROR: version-range library not found: ${VERSION_RANGE_LIB}" >&2
-  exit 1
-fi
+# Stub log functions so libraries that expect log_error / log_warning / log
+# (detect-build-context, version-range) work standalone.
 if ! declare -f log_error >/dev/null 2>&1; then
   log_error() { echo "ERROR: $*" >&2; }
 fi
@@ -175,6 +168,36 @@ if ! declare -f log_warning >/dev/null 2>&1; then
 fi
 if ! declare -f log >/dev/null 2>&1; then
   log() { echo "$*" >&2; }
+fi
+
+# Pre-yaml build context (BUILD_PLATFORM=local, registry/namespace, branches,
+# repo identity). artifact-resolve needs BUILD_PLATFORM at minimum and the
+# DOCKER_TARGET_* pair for short-form refs. All vars overridable via env.
+DETECT_BUILD_CONTEXT_LIB="${BUILD_ROOT}/src/scripts/lib/detect-build-context.bash"
+if [[ ! -f "${DETECT_BUILD_CONTEXT_LIB}" ]]; then
+  echo "ERROR: detect-build-context library not found: ${DETECT_BUILD_CONTEXT_LIB}" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "${DETECT_BUILD_CONTEXT_LIB}"
+
+# IMAGE_BUILD_COMMAND is set by validate-tooling in a normal build; it's not
+# part of detect-build-context. Pick docker or podman ourselves.
+if [[ -z "${IMAGE_BUILD_COMMAND:-}" ]]; then
+  if command -v docker &>/dev/null; then
+    export IMAGE_BUILD_COMMAND="docker"
+  elif command -v podman &>/dev/null; then
+    export IMAGE_BUILD_COMMAND="podman"
+  fi
+fi
+
+# Source version-range library — provides version_compare/_ge/_gt/_le/_lt,
+# version_is_exact, version_unwrap_exact, version_filter_release,
+# version_resolve_range.
+VERSION_RANGE_LIB="${BUILD_ROOT}/src/scripts/lib/version-range.bash"
+if [[ ! -f "${VERSION_RANGE_LIB}" ]]; then
+  echo "ERROR: version-range library not found: ${VERSION_RANGE_LIB}" >&2
+  exit 1
 fi
 # shellcheck disable=SC1090
 source "${VERSION_RANGE_LIB}"
@@ -372,8 +395,10 @@ resolve_to_version() {
   local ref="$1"
   local safe="${ref//[^a-zA-Z0-9._-]/_}"
   local out="${RESOLVE_TMPDIR}/${safe}"
-  rm -f "${out}"
-  if ! IS_RELEASE=true "${ARTIFACT_RESOLVE}" "${ref}" "${out}" 2>/dev/null; then
+  local err="${RESOLVE_TMPDIR}/${safe}.err"
+  rm -f "${out}" "${err}"
+  RESOLVE_ERR_FILE="${err}"
+  if ! IS_RELEASE=true "${ARTIFACT_RESOLVE}" "${ref}" "${out}" >"${err}" 2>&1; then
     return 1
   fi
   local resolved
@@ -485,24 +510,48 @@ compute_tightened_lower() {
 # Per-entry processing
 # -----------------------------------------------------------------------------
 
-# Accumulators. Each entry is "${file}|${location}|${before}|${after}".
+# Accumulators.
+#   CHANGES drives the apply step. Each entry is "${file}|${location}|${before}|${after}".
+#   ROWS drives output rendering. Each entry is "${status}|${file}|${location}|${ref}|${detail}"
+#   where status is one of: CHANGE / KEEP / SKIP / ERROR.
 CHANGES=()
-SKIPS=()
+ROWS=()
 
-# Process one entry. Decides which axis applies and accumulates a change row.
-# Arguments: file, location, full_ref
+# Push a row for output. Args: status, file, location, ref, detail.
+add_row() {
+  ROWS+=("${1}|${2}|${3}|${4}|${5}")
+}
+
+# Push a change row for both arrays. Args: file, location, before, after.
+add_change() {
+  CHANGES+=("${1}|${2}|${3}|${4}")
+  add_row "CHANGE" "${1}" "${2}" "${3}" "→ ${4}"
+}
+
+# Print the inline artifact-resolve error block to stderr and push an ERROR row.
+record_resolve_error() {
+  local file="$1" location="$2" ref="$3"
+  echo "----- artifact-resolve failed for ${ref} (${file} ${location}) -----" >&2
+  [[ -s "${RESOLVE_ERR_FILE:-}" ]] && cat "${RESOLVE_ERR_FILE}" >&2
+  echo "----- end -----" >&2
+  add_row "ERROR" "${file}" "${location}" "${ref}" "artifact-resolve failed (see error above)"
+}
+
+# Process one entry. Decides which axis applies, records a row for every
+# disposition (change / keep / skip / error). Arguments: file, location, full_ref
 process_entry() {
   local file="$1" location="$2" ref="$3"
   split_ref "${ref}"
   local name="${REF_NAME}" version="${REF_VERSION}"
 
   if [[ "${version}" == *-PRERELEASE* ]]; then
-    SKIPS+=("${file}|${location}|${ref}|PRERELEASE references are local-only and not updated")
+    add_row "SKIP" "${file}" "${location}" "${ref}" "PRERELEASE references are local-only and not updated"
     return 0
   fi
 
   if version_is_exact "${version}"; then
     if [[ "${UPDATE_FIXED}" != "true" ]]; then
+      add_row "KEEP" "${file}" "${location}" "${ref}" "exact ref (pass --update-fixed to bump)"
       return 0
     fi
     # Determine bracket style to preserve [N] vs N
@@ -513,10 +562,11 @@ process_entry() {
       bracketed=true
     fi
     if ! resolve_highest "${name}"; then
-      SKIPS+=("${file}|${location}|${ref}|could not query registry for highest")
+      record_resolve_error "${file}" "${location}" "${ref}"
       return 0
     fi
     if ! version_gt "${HIGHEST_VERSION}" "${plain}"; then
+      add_row "KEEP" "${file}" "${location}" "${ref}" "already at highest (${HIGHEST_VERSION})"
       return 0
     fi
     local target_depth
@@ -531,7 +581,9 @@ process_entry() {
     fi
     local new_ref="${name}:${new_version}"
     if [[ "${new_ref}" != "${ref}" ]]; then
-      CHANGES+=("${file}|${location}|${ref}|${new_ref}")
+      add_change "${file}" "${location}" "${ref}" "${new_ref}"
+    else
+      add_row "KEEP" "${file}" "${location}" "${ref}" "already at highest (${HIGHEST_VERSION})"
     fi
     return 0
   fi
@@ -539,14 +591,18 @@ process_entry() {
   # It's a range.
   if [[ "${UPDATE_RANGES}" == "true" ]]; then
     if ! resolve_highest "${name}"; then
-      SKIPS+=("${file}|${location}|${ref}|could not query registry for highest")
+      record_resolve_error "${file}" "${location}" "${ref}"
       return 0
     fi
     if compute_updated_range "${version}" "${HIGHEST_VERSION}"; then
       local new_ref="${name}:${NEW_RANGE}"
       if [[ "${new_ref}" != "${ref}" ]]; then
-        CHANGES+=("${file}|${location}|${ref}|${new_ref}")
+        add_change "${file}" "${location}" "${ref}" "${new_ref}"
+      else
+        add_row "KEEP" "${file}" "${location}" "${ref}" "range already covers highest (${HIGHEST_VERSION})"
       fi
+    else
+      add_row "KEEP" "${file}" "${location}" "${ref}" "open range, nothing to tighten (highest ${HIGHEST_VERSION})"
     fi
     return 0
   fi
@@ -554,17 +610,24 @@ process_entry() {
   if [[ "${UPDATE_LOWER_BOUNDS}" == "true" ]]; then
     # Resolve the range to its current highest match; that's our new lower.
     if ! resolve_match "${ref}"; then
-      SKIPS+=("${file}|${location}|${ref}|could not resolve range against registry")
+      record_resolve_error "${file}" "${location}" "${ref}"
       return 0
     fi
     if compute_tightened_lower "${version}" "${MATCH_VERSION}"; then
       local new_ref="${name}:${NEW_RANGE}"
       if [[ "${new_ref}" != "${ref}" ]]; then
-        CHANGES+=("${file}|${location}|${ref}|${new_ref}")
+        add_change "${file}" "${location}" "${ref}" "${new_ref}"
+      else
+        add_row "KEEP" "${file}" "${location}" "${ref}" "lower already at highest match (${MATCH_VERSION})"
       fi
+    else
+      add_row "KEEP" "${file}" "${location}" "${ref}" "lower already at highest match (${MATCH_VERSION})"
     fi
     return 0
   fi
+
+  # No axis enabled for this kind of ref.
+  add_row "KEEP" "${file}" "${location}" "${ref}" "no update axis enabled for this ref"
 }
 
 # -----------------------------------------------------------------------------
@@ -613,11 +676,17 @@ process_file() {
   if [[ "${UPDATE_API_VERSION}" == "true" ]]; then
     local current
     current="$(yq -r '.apiVersion // ""' "${file}")"
-    if [[ -n "${current}" && "${current}" == kaptain.org/* ]]; then
+    if [[ -z "${current}" ]]; then
+      add_row "SKIP" "${file}" "apiVersion" "(missing)" "no apiVersion field in file"
+    elif [[ "${current}" != kaptain.org/* ]]; then
+      add_row "SKIP" "${file}" "apiVersion" "${current}" "not a kaptain.org/ apiVersion"
+    else
       local current_ver="${current#kaptain.org/}"
       local target="kaptain.org/${CURRENT_API_VERSION}"
       if version_gt "${CURRENT_API_VERSION}" "${current_ver}"; then
-        CHANGES+=("${file}|apiVersion|${current}|${target}")
+        add_change "${file}" "apiVersion" "${current}" "${target}"
+      else
+        add_row "KEEP" "${file}" "apiVersion" "${current}" "already at schema version (${CURRENT_API_VERSION})"
       fi
     fi
   fi
@@ -635,37 +704,30 @@ done
 # Output
 # -----------------------------------------------------------------------------
 
-# Compute column widths across all change rows.
 CHANGES_COUNT=${#CHANGES[@]}
-SKIPS_COUNT=${#SKIPS[@]}
+ROWS_COUNT=${#ROWS[@]}
 
-W_FILE=0
-W_LOC=0
-W_BEFORE=0
-W_AFTER=0
-if [[ ${CHANGES_COUNT} -gt 0 ]]; then
-  for row in "${CHANGES[@]}"; do
-    IFS='|' read -r f l b a <<< "${row}"
+# Print one aligned line per checked entry. Status comes first as a fixed
+# label, then file / location / ref, then the disposition detail.
+if [[ ${ROWS_COUNT} -gt 0 ]]; then
+  W_STATUS=0
+  W_FILE=0
+  W_LOC=0
+  W_REF=0
+  for row in "${ROWS[@]}"; do
+    IFS='|' read -r s f l r _ <<< "${row}"
+    (( ${#s} > W_STATUS )) && W_STATUS="${#s}"
     (( ${#f} > W_FILE ))   && W_FILE="${#f}"
     (( ${#l} > W_LOC ))    && W_LOC="${#l}"
-    (( ${#b} > W_BEFORE )) && W_BEFORE="${#b}"
-    (( ${#a} > W_AFTER ))  && W_AFTER="${#a}"
+    (( ${#r} > W_REF ))    && W_REF="${#r}"
   done
 
-  printf -v fmt '%%-%ds %%-%ds %%-%ds  →  %%-%ds\n' \
-    "$((W_FILE + 1))" "$((W_LOC + 1))" "$((W_BEFORE + 1))" "$((W_AFTER + 1))"
-  for row in "${CHANGES[@]}"; do
-    IFS='|' read -r f l b a <<< "${row}"
+  printf -v fmt '%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s\n' \
+    "${W_STATUS}" "${W_FILE}" "${W_LOC}" "${W_REF}"
+  for row in "${ROWS[@]}"; do
+    IFS='|' read -r s f l r d <<< "${row}"
     # shellcheck disable=SC2059
-    printf "${fmt}" "${f}" "${l}" "${b}" "${a}"
-  done
-fi
-
-if [[ ${SKIPS_COUNT} -gt 0 ]]; then
-  echo ""
-  for row in "${SKIPS[@]}"; do
-    IFS='|' read -r f l ref reason <<< "${row}"
-    echo "SKIP  ${f}  ${l}  ${ref}  —  ${reason}"
+    printf "${fmt}" "${s}" "${f}" "${l}" "${r}" "${d}"
   done
 fi
 
@@ -696,6 +758,7 @@ if [[ "${DRY_RUN}" != "true" && ${CHANGES_COUNT} -gt 0 ]]; then
 elif [[ ${CHANGES_COUNT} -gt 0 ]]; then
   echo ""
   echo "${CHANGES_COUNT} change(s) would be applied (dry run)."
-elif [[ ${SKIPS_COUNT} -eq 0 ]]; then
+else
+  echo ""
   echo "No changes."
 fi

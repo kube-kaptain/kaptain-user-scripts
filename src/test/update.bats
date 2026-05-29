@@ -85,6 +85,16 @@ exit 1
 STUB
   chmod +x "${FAKE_BUILD_ROOT}/src/scripts/util/artifact-resolve"
 
+  # Stub detect-build-context.bash. The real one in buildon does git/CI
+  # auto-detection to set BUILD_PLATFORM, DOCKER_TARGET_REGISTRY etc. for
+  # artifact-resolve; the stubbed artifact-resolve here doesn't need any of it,
+  # so the file just needs to source cleanly.
+  cat > "${FAKE_BUILD_ROOT}/src/scripts/lib/detect-build-context.bash" <<'LIB'
+#!/usr/bin/env bash
+# Test stub: no auto-detection needed when artifact-resolve is faked.
+:
+LIB
+
   # Schema version file — read directly by --api-version.
   echo "1.19" > "${FAKE_BUILD_ROOT}/src/schemas/version"
 }
