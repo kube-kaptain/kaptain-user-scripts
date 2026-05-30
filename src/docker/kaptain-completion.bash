@@ -109,6 +109,15 @@ _kaptain_completions() {
     fi
   fi
 
+  # Leaf-script fallback: when the resolved prefix names an executable script,
+  # also offer its flags so an empty tab tab at a leaf still lists options.
+  # The subcommand search below still runs, so router-with-script hybrids
+  # show both sub-scripts and their own flags.
+  local leaf_flags=""
+  if [[ -x "${KAPTAIN_SCRIPT_DIR}/${prefix##*/}" ]]; then
+    leaf_flags=$(_kaptain_flags "${prefix##*/}")
+  fi
+
   # Sub-command completion — find scripts matching prefix-* and extract segments
   local completions=()
   local seen=()
@@ -159,6 +168,25 @@ _kaptain_completions() {
       fi
     done
   done
+
+  # Merge leaf flags in (deduplicated against any same-named subcommands)
+  if [[ -n "${leaf_flags}" ]]; then
+    local f
+    for f in ${leaf_flags}; do
+      local dup=false
+      local s
+      for s in "${seen[@]+"${seen[@]}"}"; do
+        if [[ "${s}" == "${f}" ]]; then
+          dup=true
+          break
+        fi
+      done
+      if [[ "${dup}" == "false" ]]; then
+        seen+=("${f}")
+        completions+=("${f}")
+      fi
+    done
+  fi
 
   COMPREPLY=($(compgen -W "${completions[*]}" -- "${cur}" 2>/dev/null)) || true
 }
