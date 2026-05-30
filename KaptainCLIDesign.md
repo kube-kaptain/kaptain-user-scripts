@@ -66,6 +66,8 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 - `kaptain-list-secrets`
 - `kaptain-list-manifests`
 - `kaptain-clean-secrets`
+- `kaptain-clean-images`
+- `kaptain-list-images`
 - `kaptain-setup-brew`
 
 ### Encryption Scripts (callable for direct use if desired)

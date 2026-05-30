@@ -54,8 +54,10 @@ _kaptain_flags() {
     kaptain-encryption-check-ignores)   echo "--dir" ;;
     kaptain-keygen)                     echo "--help --output --type -h" ;;
     kaptain-rotate-key-for-secrets)     echo "--ask-for-key --dir --help --new-type --output -h" ;;
+    kaptain-clean-images)               echo "--all --all-same-reg-ns --dry-run --exclude-prereleases --exclude-releases --extra-prefixes --help --include-prereleases --include-releases --prefix -h" ;;
     kaptain-clean-secrets)              echo "--all --dir --dry-run --help -h" ;;
     kaptain-list-config)                echo "--all --defaults-dir --dir --help -h" ;;
+    kaptain-list-images)                echo "--all --all-same-reg-ns --exclude-prereleases --exclude-releases --extra-prefixes --help --include-prereleases --include-releases --prefix -h" ;;
     kaptain-list-manifests)             echo "--all --dir --help -h" ;;
     kaptain-list-secrets)               echo "--all --dir --help --verbose -h -v" ;;
     kaptain-setup-brew)                 echo "--apps-in-home --copy-fred --help -h" ;;
@@ -107,6 +109,13 @@ _kaptain() {
     fi
   fi
 
+  # Leaf-script fallback: when the resolved prefix names an executable script,
+  # also offer its flags so an empty tab tab at a leaf still lists options.
+  local leaf_flags=""
+  if [[ -x "${KAPTAIN_SCRIPT_DIR}/${prefix##*/}" ]]; then
+    leaf_flags=$(_kaptain_flags "${prefix##*/}")
+  fi
+
   # Sub-command completion — find scripts matching prefix-* and extract segments
   local -a completions seen
   local file remainder segment candidate s already
@@ -143,6 +152,24 @@ _kaptain() {
       fi
     done
   done
+
+  # Merge leaf flags in (deduplicated against any same-named subcommands)
+  if [[ -n "${leaf_flags}" ]]; then
+    local f
+    for f in ${=leaf_flags}; do
+      already=false
+      for s in "${seen[@]}"; do
+        if [[ "${s}" == "${f}" ]]; then
+          already=true
+          break
+        fi
+      done
+      if [[ "${already}" == "false" ]]; then
+        seen+=("${f}")
+        completions+=("${f}")
+      fi
+    done
+  fi
 
   compadd -a completions
 }

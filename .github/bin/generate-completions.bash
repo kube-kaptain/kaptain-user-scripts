@@ -45,7 +45,7 @@ done
 # These are case patterns ending with ) — not heredoc text or echo strings
 extract_flags() {
   local script="$1"
-  grep -E '^\s+--?[a-z][a-z|-]*\)' "${script}" \
+  grep -E '^\s+--?[a-z][a-z|-]*(=\*)?\)' "${script}" \
     | grep -oE '\-\-?[a-z][-a-z]*' \
     | sort -u \
     | tr '\n' ' ' \
