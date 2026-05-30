@@ -39,6 +39,8 @@ describe_command() {
     rotate-key-for-secrets) echo "Rotate encryption key for secrets" ;;
     build)                  echo "Build a kaptain project locally" ;;
     clean-project)          echo "Clean build output directories" ;;
+    clean-images)           echo "Remove PRERELEASE-tagged container images" ;;
+    list-images)            echo "List container images filtered by scope and tag class" ;;
     update)                 echo "Update whatever comes after this" ;;
     setup)                  echo "Interactive workstation setup" ;;
     *)                      echo "" ;;
@@ -114,6 +116,56 @@ Utility Commands:
 
   kaptain clean secrets [--dir DIR] [--all]
     Remove decrypted secret files (.raw, .txt)
+
+  kaptain clean images [--all|--all-same-reg-ns|--prefix=X]
+                       [--extra-prefixes=A,B,...]
+                       [--include-releases] [--include-prereleases]
+                       [--exclude-releases] [--exclude-prereleases] [--dry-run]
+    Remove container images whose tag matches the selected classes (default:
+    PRERELEASE only), then run image prune.
+    --all                 Match every PRERELEASE image on the machine.
+                          Forbidden with --include-releases.
+    --all-same-reg-ns     Match every image under the current repo's
+                          <reg>/<ns>/. Requires a Branchout tree.
+    --prefix=X            Match only images under <reg>[/<ns>...] X. Skips
+                          the build libs entirely.
+    --extra-prefixes=A,B  Comma-separated *additional* <reg>[/<ns>...] prefixes.
+                          Composes with --all-same-reg-ns, --prefix=X, or
+                          default mode. Mutually exclusive with --all. May
+                          not stand alone — use --prefix=X for a single
+                          explicit scope.
+    --include-releases    Also clean stable (non-PRERELEASE) tags. Forbidden
+                          with --all.
+    --include-prereleases Default; explicit form is a no-op.
+    --exclude-releases    Default; explicit form is a no-op.
+    --exclude-prereleases Drop PRERELEASE from the included set. Alone leaves
+                          an empty match (rmi skipped, prune still runs).
+    --dry-run             Preview only; no rmi, no image prune.
+    Default mode and --all-same-reg-ns require
+    KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set.
+
+  kaptain list images [--all|--all-same-reg-ns|--prefix=X]
+                      [--extra-prefixes=A,B,...]
+                      [--include-releases] [--include-prereleases]
+                      [--exclude-releases] [--exclude-prereleases]
+    List container images filtered by scope and tag class (default: every
+    tag in scope). Read-only companion to `clean images`.
+    --all                 List every image on the machine.
+    --all-same-reg-ns     List every image under the current repo's
+                          <reg>/<ns>/. Requires a Branchout tree.
+    --prefix=X            List only images under <reg>[/<ns>...] X. Skips
+                          the build libs entirely.
+    --extra-prefixes=A,B  Comma-separated *additional* <reg>[/<ns>...] prefixes.
+                          Composes with --all-same-reg-ns, --prefix=X, or
+                          default mode. Mutually exclusive with --all. May
+                          not stand alone — use --prefix=X for a single
+                          explicit scope.
+    --include-releases    Default; explicit form is a no-op.
+    --include-prereleases Default; explicit form is a no-op.
+    --exclude-releases    List only PRERELEASE tags.
+    --exclude-prereleases List only release tags.
+    Default mode and --all-same-reg-ns require
+    KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set.
 
 Encryption Commands:
   kaptain encrypt [--type TYPE] [--dir DIR]

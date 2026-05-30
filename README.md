@@ -57,6 +57,8 @@ Currently CLI, routing, utility and encryption scripts useful to kaptain users.
 | `kaptain-list-secrets`   | List secret files and their encryption status    |
 | `kaptain-list-manifests` | List Kubernetes manifest files and validate them |
 | `kaptain-clean-secrets`  | Remove decrypted secret files (.raw, .txt)       |
+| `kaptain-clean-images`   | Remove PRERELEASE-tagged container images        |
+| `kaptain-list-images`    | List container images by scope and tag class     |
 
 ### Encryption
 

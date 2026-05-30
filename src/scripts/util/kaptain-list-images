@@ -1,0 +1,418 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# List container images filtered to the current project / reg+ns / extra
+# prefixes / everything. Read-only companion to kaptain-clean-images.
+# Uses podman if available, else docker.
+#
+# Usage: kaptain-list-images [--all|--all-same-reg-ns|--prefix=X]
+#                            [--extra-prefixes=A,B,...]
+#                            [--include-releases] [--include-prereleases]
+#                            [--exclude-releases] [--exclude-prereleases]
+set -euo pipefail
+
+MODE_ALL=false
+MODE_ALL_SAME_REG_NS=false
+PREFIX_RAW=""
+HAVE_PREFIX=false
+EXTRA_PREFIXES_RAW=""
+HAVE_EXTRA_PREFIXES=false
+
+# Tag-class flags. Default for list: everything.
+FLAG_INCLUDE_RELEASES=false
+FLAG_INCLUDE_PRERELEASES=false
+FLAG_EXCLUDE_RELEASES=false
+FLAG_EXCLUDE_PRERELEASES=false
+DEFAULT_INCLUDE_RELEASES=true
+DEFAULT_INCLUDE_PRERELEASES=true
+
+usage() {
+  cat <<'EOF'
+Usage: kaptain list images [--all|--all-same-reg-ns|--prefix=X]
+                           [--extra-prefixes=A,B,...]
+                           [--include-releases] [--include-prereleases]
+                           [--exclude-releases] [--exclude-prereleases]
+
+List container images filtered by registry/namespace/prefix and tag class
+(default: list every tag in scope).
+
+Modes (pick at most one — they set the base scope):
+  (default)             Detect the current repo's <reg>/<ns>/<prefix>/<name>/
+                        from the build-script libs and list matching images.
+  --all                 List every image on the machine. No scope filter.
+  --all-same-reg-ns     List every image under the current repo's
+                        <reg>/<ns>/. Requires a Branchout tree.
+  --prefix=X            List only images under <reg>[/<ns>[/...]] X. Skips
+                        the build libs entirely. Use when you don't use the
+                        defaults for your build system (e.g. ghcr.io for
+                        GitHub Actions), or your build system has no default
+                        scheme of its own and you must supply one explicitly.
+
+Scope:
+  --extra-prefixes=A,B  Comma-separated *additional* <reg>[/<ns>[/...]] prefixes
+                        to match. Composes with --all-same-reg-ns, --prefix=X,
+                        or the default-mode detection. Mutually exclusive with
+                        --all, and may not stand alone (use --prefix=X for
+                        that).
+
+Tag classes (default: every tag):
+  --exclude-releases    List only PRERELEASE-tagged images.
+  --exclude-prereleases List only release-tagged images.
+  --include-releases    (Default, kept for explicit/CI use; no-op alone.)
+  --include-prereleases (Default, kept for explicit/CI use; no-op alone.)
+
+  -h, --help            Show this help and exit.
+
+Output: one <repo>:<tag> per line, followed by a one-line summary. Exit 0
+even when nothing matches.
+
+Requires podman or docker on PATH. Default and --all-same-reg-ns modes also
+require KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set.
+EOF
+}
+
+detect_engine() {
+  if command -v podman >/dev/null 2>&1; then
+    ENGINE=podman
+  elif command -v docker >/dev/null 2>&1; then
+    ENGINE=docker
+  else
+    echo "ERROR: neither podman nor docker found on PATH" >&2
+    exit 1
+  fi
+}
+
+find_branchout_root() {
+  local dir="${PWD}"
+  BRANCHOUT_PROJECTS_DIRECTORY="${BRANCHOUT_PROJECTS_DIRECTORY:-projects}"
+  # shellcheck disable=SC1091
+  test -f ~/.config/branchoutrc && source ~/.config/branchoutrc
+  local home_projects="${HOME}/${BRANCHOUT_PROJECTS_DIRECTORY}"
+
+  if [[ "${dir}" != "${home_projects}/"* ]]; then
+    echo "ERROR: Not under ${home_projects}/, cannot find branchout tree" >&2
+    echo "ERROR: --all-same-reg-ns requires a Branchout tree" >&2
+    exit 1
+  fi
+
+  while [[ "${dir}" != "${home_projects}" && "${dir}" != "/" ]]; do
+    if [[ -f "${dir}/Branchoutfile" && -f "${dir}/Branchoutprojects" ]]; then
+      BRANCHOUT_ROOT="${dir}"
+      return 0
+    fi
+    dir=$(dirname "${dir}")
+  done
+
+  echo "ERROR: Branchout root not found" >&2
+  echo "ERROR: --all-same-reg-ns requires a Branchout tree" >&2
+  exit 1
+}
+
+require_build_root() {
+  if [[ -z "${KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT:-}" ]]; then
+    echo "ERROR: KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT is not set" >&2
+    echo "ERROR: Default and --all-same-reg-ns modes need the build scripts repo to detect the registry/namespace" >&2
+    exit 1
+  fi
+  BUILD_ROOT="${KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT/#\~/$HOME}"
+  if [[ ! -d "${BUILD_ROOT}" ]]; then
+    echo "ERROR: Build scripts repo not found at: ${BUILD_ROOT}" >&2
+    exit 1
+  fi
+}
+
+source_build_libs() {
+  if ! declare -f log_error >/dev/null 2>&1; then
+    log_error() { echo "ERROR: $*" >&2; }
+  fi
+  if ! declare -f log_warning >/dev/null 2>&1; then
+    log_warning() { echo "WARNING: $*" >&2; }
+  fi
+  if ! declare -f log >/dev/null 2>&1; then
+    log() { echo "$*"; }
+  fi
+
+  local ctx="${BUILD_ROOT}/src/scripts/lib/detect-build-context.bash"
+  local exp="${BUILD_ROOT}/src/scripts/lib/docker-ref-expand.bash"
+  if [[ ! -f "${ctx}" ]]; then
+    echo "ERROR: Missing build lib: ${ctx}" >&2
+    exit 1
+  fi
+  if [[ ! -f "${exp}" ]]; then
+    echo "ERROR: Missing build lib: ${exp}" >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  source "${ctx}"
+  # shellcheck disable=SC1090
+  source "${exp}"
+}
+
+validate_prefix_entry() {
+  local entry="$1"
+  PREFIX_VALIDATION_ERROR=""
+  if [[ -z "${entry}" ]]; then
+    PREFIX_VALIDATION_ERROR="empty"
+    return 1
+  fi
+  case "${entry}" in
+    *:*)           PREFIX_VALIDATION_ERROR="must not contain ':'";        return 1 ;;
+    *[[:space:]]*) PREFIX_VALIDATION_ERROR="must not contain whitespace"; return 1 ;;
+    /*)            PREFIX_VALIDATION_ERROR="must not start with '/'";     return 1 ;;
+    */)            PREFIX_VALIDATION_ERROR="must not end with '/'";       return 1 ;;
+  esac
+  return 0
+}
+
+parse_extra_prefixes() {
+  EXTRA_PREFIXES=()
+  local saved_ifs="${IFS-}"
+  IFS=','
+  # shellcheck disable=SC2206
+  local parts=( ${EXTRA_PREFIXES_RAW} )
+  IFS="${saved_ifs}"
+  local entry
+  for entry in "${parts[@]}"; do
+    if ! validate_prefix_entry "${entry}"; then
+      echo "ERROR: invalid --extra-prefixes entry '${entry}': ${PREFIX_VALIDATION_ERROR}" >&2
+      exit 1
+    fi
+    EXTRA_PREFIXES+=("${entry}")
+  done
+  if [[ ${#EXTRA_PREFIXES[@]} -eq 0 ]]; then
+    echo "ERROR: --extra-prefixes given with no entries" >&2
+    exit 1
+  fi
+}
+
+join_with() {
+  local sep="$1"; shift
+  local out=""
+  local first=true
+  local x
+  for x in "$@"; do
+    if [[ "${first}" == "true" ]]; then
+      out="${x}"
+      first=false
+    else
+      out="${out}${sep}${x}"
+    fi
+  done
+  echo "${out}"
+}
+
+resolve_prefixes() {
+  MATCH_PREFIXES=()
+  MATCH_ALL=false
+  SCOPE_DESC=""
+
+  if [[ "${MODE_ALL}" == "true" ]]; then
+    MATCH_ALL=true
+    SCOPE_DESC="all images on this machine"
+    return 0
+  fi
+
+  if [[ "${HAVE_PREFIX}" == "true" ]]; then
+    if ! validate_prefix_entry "${PREFIX_RAW}"; then
+      echo "ERROR: invalid --prefix '${PREFIX_RAW}': ${PREFIX_VALIDATION_ERROR}" >&2
+      exit 1
+    fi
+    MATCH_PREFIXES=("${PREFIX_RAW}/")
+  elif [[ "${MODE_ALL_SAME_REG_NS}" == "true" ]]; then
+    find_branchout_root
+    echo "Branchout root: ${BRANCHOUT_ROOT}"
+    require_build_root
+    source_build_libs
+    MATCH_PREFIXES=("${DOCKER_TARGET_REGISTRY}/${DOCKER_TARGET_NAMESPACE}/")
+  else
+    if [[ "${HAVE_EXTRA_PREFIXES}" == "true" ]]; then
+      echo "ERROR: --extra-prefixes must combine with --all-same-reg-ns, --prefix=X, or default mode — it cannot stand alone (use --prefix=X for a single explicit scope)" >&2
+      exit 1
+    fi
+    require_build_root
+    source_build_libs
+    docker_ref_expand "${REPOSITORY_NAME}:0"
+    MATCH_PREFIXES=("${DOCKER_REF_FULL_NAME}/")
+  fi
+
+  if [[ "${HAVE_EXTRA_PREFIXES}" == "true" ]]; then
+    parse_extra_prefixes
+    local e
+    for e in "${EXTRA_PREFIXES[@]}"; do
+      MATCH_PREFIXES+=("${e}/")
+    done
+  fi
+
+  SCOPE_DESC=$(join_with ", " "${MATCH_PREFIXES[@]}")
+}
+
+resolve_tag_classes() {
+  if [[ "${FLAG_INCLUDE_RELEASES}" == "true" && "${FLAG_EXCLUDE_RELEASES}" == "true" ]]; then
+    echo "ERROR: --include-releases and --exclude-releases are contradictory" >&2
+    exit 1
+  fi
+  if [[ "${FLAG_INCLUDE_PRERELEASES}" == "true" && "${FLAG_EXCLUDE_PRERELEASES}" == "true" ]]; then
+    echo "ERROR: --include-prereleases and --exclude-prereleases are contradictory" >&2
+    exit 1
+  fi
+
+  if [[ "${FLAG_INCLUDE_RELEASES}" == "true" ]]; then
+    INCLUDE_RELEASES=true
+  elif [[ "${FLAG_EXCLUDE_RELEASES}" == "true" ]]; then
+    INCLUDE_RELEASES=false
+  else
+    INCLUDE_RELEASES="${DEFAULT_INCLUDE_RELEASES}"
+  fi
+
+  if [[ "${FLAG_INCLUDE_PRERELEASES}" == "true" ]]; then
+    INCLUDE_PRERELEASES=true
+  elif [[ "${FLAG_EXCLUDE_PRERELEASES}" == "true" ]]; then
+    INCLUDE_PRERELEASES=false
+  else
+    INCLUDE_PRERELEASES="${DEFAULT_INCLUDE_PRERELEASES}"
+  fi
+
+  if [[ "${INCLUDE_RELEASES}" == "true" && "${INCLUDE_PRERELEASES}" == "true" ]]; then
+    KIND_DESC="matching"
+  elif [[ "${INCLUDE_RELEASES}" == "true" ]]; then
+    KIND_DESC="release"
+  elif [[ "${INCLUDE_PRERELEASES}" == "true" ]]; then
+    KIND_DESC="PRERELEASE"
+  else
+    KIND_DESC="(none — prune only)"
+  fi
+}
+
+collect_images() {
+  IMAGES=()
+  local listing
+  listing=$("${ENGINE}" images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
+  if [[ -z "${listing}" ]]; then
+    return 0
+  fi
+
+  local line tag repo p is_pre
+  while IFS= read -r line; do
+    [[ -z "${line}" ]] && continue
+    tag="${line##*:}"
+    [[ "${tag}" == "${line}" ]] && continue
+    case "${tag}" in
+      *PRERELEASE*) is_pre=true ;;
+      *)            is_pre=false ;;
+    esac
+    if [[ "${is_pre}" == "true" && "${INCLUDE_PRERELEASES}" != "true" ]]; then
+      continue
+    fi
+    if [[ "${is_pre}" == "false" && "${INCLUDE_RELEASES}" != "true" ]]; then
+      continue
+    fi
+    if [[ "${MATCH_ALL}" == "true" ]]; then
+      IMAGES+=("${line}")
+      continue
+    fi
+    repo="${line%:*}"
+    for p in "${MATCH_PREFIXES[@]}"; do
+      case "${repo}/" in
+        "${p}"*) IMAGES+=("${line}"); break ;;
+      esac
+    done
+  done <<EOF
+${listing}
+EOF
+}
+
+pluralize() {
+  local n="$1" singular="$2" plural="$3"
+  if [[ "${n}" -eq 1 ]]; then
+    echo "${singular}"
+  else
+    echo "${plural}"
+  fi
+}
+
+count_distinct_repos() {
+  local seen="" repo line out=0
+  for line in "${IMAGES[@]}"; do
+    repo="${line%:*}"
+    case "|${seen}|" in
+      *"|${repo}|"*) ;;
+      *) seen="${seen}|${repo}"; out=$((out + 1)) ;;
+    esac
+  done
+  echo "${out}"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)             usage; exit 0 ;;
+    --all)                 MODE_ALL=true; shift ;;
+    --all-same-reg-ns)     MODE_ALL_SAME_REG_NS=true; shift ;;
+    --prefix=*)
+      HAVE_PREFIX=true
+      PREFIX_RAW="${1#--prefix=}"
+      shift
+      ;;
+    --extra-prefixes=*)
+      HAVE_EXTRA_PREFIXES=true
+      EXTRA_PREFIXES_RAW="${1#--extra-prefixes=}"
+      shift
+      ;;
+    --include-releases)    FLAG_INCLUDE_RELEASES=true;    shift ;;
+    --include-prereleases) FLAG_INCLUDE_PRERELEASES=true; shift ;;
+    --exclude-releases)    FLAG_EXCLUDE_RELEASES=true;    shift ;;
+    --exclude-prereleases) FLAG_EXCLUDE_PRERELEASES=true; shift ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ "${MODE_ALL}" == "true" && "${HAVE_EXTRA_PREFIXES}" == "true" ]]; then
+  echo "ERROR: --all and --extra-prefixes are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "${MODE_ALL}" == "true" && "${MODE_ALL_SAME_REG_NS}" == "true" ]]; then
+  echo "ERROR: --all and --all-same-reg-ns are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "${MODE_ALL}" == "true" && "${HAVE_PREFIX}" == "true" ]]; then
+  echo "ERROR: --all and --prefix are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "${MODE_ALL_SAME_REG_NS}" == "true" && "${HAVE_PREFIX}" == "true" ]]; then
+  echo "ERROR: --all-same-reg-ns and --prefix are mutually exclusive" >&2
+  exit 1
+fi
+
+detect_engine
+echo "Engine: ${ENGINE}"
+
+resolve_tag_classes
+resolve_prefixes
+echo "Match scope: ${SCOPE_DESC}"
+echo "Tag classes: $(
+  if [[ "${INCLUDE_RELEASES}" == "true" && "${INCLUDE_PRERELEASES}" == "true" ]]; then
+    echo "releases + prereleases"
+  elif [[ "${INCLUDE_RELEASES}" == "true" ]]; then
+    echo "releases only"
+  elif [[ "${INCLUDE_PRERELEASES}" == "true" ]]; then
+    echo "PRERELEASE only"
+  else
+    echo "none (prune only)"
+  fi
+)"
+
+collect_images
+
+if [[ ${#IMAGES[@]} -eq 0 ]]; then
+  echo "no ${KIND_DESC} images for ${SCOPE_DESC}"
+else
+  for img in "${IMAGES[@]}"; do
+    echo "${img}"
+  done
+  repo_count=$(count_distinct_repos)
+  echo "${#IMAGES[@]} ${KIND_DESC} $(pluralize "${#IMAGES[@]}" image images) across ${repo_count} $(pluralize "${repo_count}" repository repositories)."
+fi
