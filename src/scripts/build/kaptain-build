@@ -3,7 +3,7 @@
 # Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
 #
 # Build a kaptain project locally.
-# Resolves the project kind, cleans build output, inits if needed,
+# Reads the project kind from KaptainPM.yaml, cleans build output,
 # then delegates to the appropriate reference build script.
 # Run from project root.
 #
@@ -17,8 +17,8 @@ usage() {
   echo ""
   echo "Build a kaptain project locally."
   echo ""
-  echo "Reads KaptainPM.yaml to determine the project kind, cleans build output,"
-  echo "runs kaptain-init if needed, and delegates to the reference build script."
+  echo "Reads the 'kind' field from KaptainPM.yaml, cleans build output,"
+  echo "and delegates to the matching reference build script."
   echo ""
   echo "Requires KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set."
   echo ""
@@ -90,54 +90,21 @@ if ! command -v yq &> /dev/null; then
   exit 1
 fi
 
-# Step 5: Resolve kind — save before clean wipes kaptainpm/
+# Step 5: Read kind from KaptainPM.yaml — required
 KIND=$(yq -r '.kind // ""' "KaptainPM.yaml")
 
-# Step 6: Display it if found
-if [[ -n "${KIND}" ]]; then
-  echo "Project kind from KaptainPM.yaml: ${KIND}"
-fi
-
-# Try cached kaptainpm/final/KaptainPM.yaml if no kind found
-if [[ -z "${KIND}" && -f "kaptainpm/final/KaptainPM.yaml" ]]; then
-  if [[ "kaptainpm/final/KaptainPM.yaml" -nt "KaptainPM.yaml" ]]; then
-    KIND=$(yq -r '.kind // ""' "kaptainpm/final/KaptainPM.yaml")
-    if [[ -n "${KIND}" ]]; then
-      echo "WARN: Using cached build kind to select reference script! Remove kaptainpm/ and force an update if wrong." >&2
-      echo "Project kind from kaptainpm/final/KaptainPM.yaml: ${KIND}"
-    fi
-  fi
-fi
-
-# Step 7: If no kind found, run kaptain-init to resolve it
 if [[ -z "${KIND}" ]]; then
-  INIT_SCRIPT="${BUILD_ROOT}/src/scripts/main/kaptain-init"
-  if [[ ! -x "${INIT_SCRIPT}" ]]; then
-    echo "ERROR: kaptain-init not found or not executable: ${INIT_SCRIPT}" >&2
-    exit 1
-  fi
-
-  BUILD_PLATFORM=local "${INIT_SCRIPT}"
-
-  if [[ ! -f "kaptainpm/final/KaptainPM.yaml" ]]; then
-    echo "ERROR: kaptain-init did not produce kaptainpm/final/KaptainPM.yaml" >&2
-    exit 1
-  fi
-
-  KIND=$(yq -r '.kind // ""' "kaptainpm/final/KaptainPM.yaml")
-
-  if [[ -n "${KIND}" ]]; then
-    echo "Project kind from kaptainpm/final/KaptainPM.yaml: ${KIND}"
-  else
-    echo "ERROR: No kind found in kaptainpm/final/KaptainPM.yaml after init" >&2
-    exit 1
-  fi
+  echo "ERROR: 'kind' is required in KaptainPM.yaml but was not found." >&2
+  echo "Add a top-level 'kind: <project-kind>' field to KaptainPM.yaml." >&2
+  exit 1
 fi
 
-# Step 8: Clean (always)
+echo "Project kind from KaptainPM.yaml: ${KIND}"
+
+# Step 6: Clean (always)
 "${SCRIPT_DIR}/kaptain-clean-project"
 
-# Step 9: Execute reference build script
+# Step 7: Execute reference build script
 REF_SCRIPT="${BUILD_ROOT}/src/scripts/reference/${KIND}"
 if [[ ! -x "${REF_SCRIPT}" ]]; then
   echo "ERROR: Reference build script not found or not executable for kind '${KIND}': ${REF_SCRIPT}" >&2

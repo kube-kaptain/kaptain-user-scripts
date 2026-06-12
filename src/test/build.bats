@@ -257,125 +257,22 @@ SCRIPT
   [[ "$output" == *"REFERENCE_SCRIPT_RAN:docker-image"* ]]
 }
 
-@test "kaptain-build: uses cached kind from kaptainpm/final when newer" {
-  local project_dir="${BATS_TEST_TMPDIR}/project-cached"
-  local fake_root="${BATS_TEST_TMPDIR}/fake-build-repo"
-  mkdir -p "${project_dir}/kaptainpm/final"
-  mkdir -p "${fake_root}/src/scripts/reference"
-  mkdir -p "${fake_root}/src/schemas"
-
-  # Create KaptainPM.yaml WITHOUT kind, with old timestamp
-  cat > "${project_dir}/KaptainPM.yaml" <<'YAML'
-name: test-project
-YAML
-  touch -t 202501010000 "${project_dir}/KaptainPM.yaml"
-
-  # Create cached final with kind (newer than root)
-  cat > "${project_dir}/kaptainpm/final/KaptainPM.yaml" <<'YAML'
-kind: helm-chart
-name: test-project
-YAML
-
-  # Create reference script
-  cat > "${fake_root}/src/scripts/reference/helm-chart" <<'SCRIPT'
-#!/usr/bin/env bash
-echo "REFERENCE_SCRIPT_RAN:helm-chart"
-SCRIPT
-  chmod +x "${fake_root}/src/scripts/reference/helm-chart"
-
-  # Fake clean
-  cat > "${project_dir}/kaptain-clean-project" <<'SCRIPT'
-#!/usr/bin/env bash
-echo "CLEAN_RAN"
-SCRIPT
-  chmod +x "${project_dir}/kaptain-clean-project"
-
-  cp "${TEST_BUILD}/kaptain-build" "${project_dir}/"
-
-  cd "${project_dir}"
-  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${fake_root}" \
-    run "${project_dir}/kaptain-build"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"cached"* ]]
-  [[ "$output" == *"REFERENCE_SCRIPT_RAN:helm-chart"* ]]
-}
-
-@test "kaptain-build: runs kaptain-init when no kind found" {
+@test "kaptain-build: fails with clear message when kind missing from KaptainPM.yaml" {
   local project_dir="${BATS_TEST_TMPDIR}/project-no-kind"
   local fake_root="${BATS_TEST_TMPDIR}/fake-build-repo"
   mkdir -p "${project_dir}"
   mkdir -p "${fake_root}/src/scripts/reference"
   mkdir -p "${fake_root}/src/schemas"
 
-  # Create KaptainPM.yaml WITHOUT kind
   cat > "${project_dir}/KaptainPM.yaml" <<'YAML'
 name: test-project
 YAML
 
-  # Create a fake kaptain-init that generates the final file
-  mkdir -p "${fake_root}/src/scripts/main"
-  cat > "${fake_root}/src/scripts/main/kaptain-init" <<'SCRIPT'
-#!/usr/bin/env bash
-echo "INIT_RAN"
-mkdir -p kaptainpm/final
-cat > kaptainpm/final/KaptainPM.yaml <<'INNER'
-kind: docker-image
-name: test-project
-INNER
-SCRIPT
-  chmod +x "${fake_root}/src/scripts/main/kaptain-init"
-
-  # Create reference script
-  cat > "${fake_root}/src/scripts/reference/docker-image" <<'SCRIPT'
-#!/usr/bin/env bash
-echo "REFERENCE_SCRIPT_RAN:docker-image"
-SCRIPT
-  chmod +x "${fake_root}/src/scripts/reference/docker-image"
-
-  # Fake clean
-  cat > "${project_dir}/kaptain-clean-project" <<'SCRIPT'
-#!/usr/bin/env bash
-echo "CLEAN_RAN"
-SCRIPT
-  chmod +x "${project_dir}/kaptain-clean-project"
-
-  cp "${TEST_BUILD}/kaptain-build" "${project_dir}/"
-
   cd "${project_dir}"
   KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${fake_root}" \
-    run "${project_dir}/kaptain-build"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"INIT_RAN"* ]]
-  [[ "$output" == *"CLEAN_RAN"* ]]
-  [[ "$output" == *"REFERENCE_SCRIPT_RAN:docker-image"* ]]
-}
-
-@test "kaptain-build: fails when kaptain-init not found" {
-  local project_dir="${BATS_TEST_TMPDIR}/project-no-init"
-  local fake_root="${BATS_TEST_TMPDIR}/fake-build-repo"
-  mkdir -p "${project_dir}"
-  mkdir -p "${fake_root}/src/scripts/reference"
-  mkdir -p "${fake_root}/src/schemas"
-
-  # KaptainPM.yaml without kind, no cached file, no kaptain-init
-  cat > "${project_dir}/KaptainPM.yaml" <<'YAML'
-name: test-project
-YAML
-
-  # Fake clean
-  cat > "${project_dir}/kaptain-clean-project" <<'SCRIPT'
-#!/usr/bin/env bash
-echo "CLEAN_RAN"
-SCRIPT
-  chmod +x "${project_dir}/kaptain-clean-project"
-
-  cp "${TEST_BUILD}/kaptain-build" "${project_dir}/"
-
-  cd "${project_dir}"
-  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${fake_root}" \
-    run "${project_dir}/kaptain-build"
+    run "${TEST_BUILD}/kaptain-build"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"kaptain-init"* ]]
+  [[ "$output" == *"'kind' is required in KaptainPM.yaml"* ]]
 }
 
 @test "kaptain-build: fails when reference script not found" {
