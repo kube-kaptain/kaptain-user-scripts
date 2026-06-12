@@ -35,7 +35,7 @@ _kaptain_flags() {
     kaptain-build)                      echo "--help -h" ;;
     kaptain-clean-project)              echo "--dir --help -h" ;;
     kaptain-update)                     echo "--help -h" ;;
-    kaptain-update-versions)            echo "--all --api-version --dry-run --file --help --no-update-lower-bounds --update-all --update-fixed --update-lower-bounds --update-ranges -h" ;;
+    kaptain-update-versions)            echo "--all --api-version --debug --dry-run --file --help --no-update-lower-bounds --update-all --update-fixed --update-lower-bounds --update-ranges -h" ;;
     kaptain-clean)                      echo "--help -h" ;;
     kaptain-list)                       echo "--help -h" ;;
     kaptain-setup)                      echo "--help -h" ;;

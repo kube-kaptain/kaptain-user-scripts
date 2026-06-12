@@ -225,8 +225,7 @@ YAML
   KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
     run "${TEST_BUILD}/kaptain-update-versions" --dry-run
   [ "$status" -eq 0 ]
-  [[ "$output" == *"layer-foo:[1.2.0,2.0.0)"* ]]
-  [[ "$output" == *"[1.7.3,2.0.0)"* ]]
+  [[ "$output" == *"CHANGE"*"layer-foo, [1.2.0,2.0.0) → [1.7.3,2.0.0)"* ]]
   [[ "$output" == *"would be applied"* ]]
   # Original file untouched
   grep -q 'layer-foo:\[1.2.0,2.0.0)' "${project}/KaptainPM.yaml"

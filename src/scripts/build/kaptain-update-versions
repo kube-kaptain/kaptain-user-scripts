@@ -25,6 +25,7 @@ UPDATE_API_VERSION=false
 ALL_PROJECTS=false
 FILE_OVERRIDE=""
 DRY_RUN=false
+DEBUG=false
 
 usage() {
   cat <<'EOF'
@@ -44,6 +45,7 @@ Flags:
   --all                      Walk branchout tree and apply to every sibling repo.
   --file FILE                Operate on exactly one file (instead of auto-discovery).
   --dry-run                  Preview changes; do not write.
+  --debug                    Show inline artifact-resolve error blocks.
   -h, --help                 Show this help.
 
 Requires KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set.
@@ -99,6 +101,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --dry-run)
       DRY_RUN=true
+      shift
+      ;;
+    --debug)
+      DEBUG=true
       shift
       ;;
     *)
@@ -533,24 +539,86 @@ compute_tightened_lower() {
 CHANGES=()
 ROWS=()
 
+# Widest short-location string ("layers[N]" / "templates[N]" / "contents[N]" /
+# "apiVersion") across the entire run, computed once before processing. Used to
+# align the streaming output in non-debug mode so the status column starts at
+# the same column for every file.
+MAX_LOC_WIDTH=0
+
+# Widest status label (CHANGE/KEEP/SKIP/ERROR). All four are at most 6 chars
+# but we treat it as a constant rather than hard-coding the literal so changes
+# to the label set only need to update this one place.
+STATUS_WIDTH=6
+
+# Scan every target file and find the widest short-location string we might
+# emit. Section names are static; the only variable is the index width, which
+# we derive from the per-section entry count.
+compute_max_loc_width() {
+  local file section count last_idx digits len
+  MAX_LOC_WIDTH=0
+  for file in "${TARGET_FILES[@]}"; do
+    if [[ "${UPDATE_LOWER_BOUNDS}" == "true" || "${UPDATE_FIXED}" == "true" || "${UPDATE_RANGES}" == "true" ]]; then
+      for section in layers templates contents; do
+        count="$(yq -r ".spec.${section} // [] | length" "${file}")"
+        if [[ "${count}" -eq 0 ]]; then
+          continue
+        fi
+        last_idx=$((count - 1))
+        digits=${#last_idx}
+        len=$(( ${#section} + 2 + digits ))
+        (( len > MAX_LOC_WIDTH )) && MAX_LOC_WIDTH=$len
+      done
+    fi
+    if [[ "${UPDATE_API_VERSION}" == "true" ]]; then
+      (( 10 > MAX_LOC_WIDTH )) && MAX_LOC_WIDTH=10
+    fi
+  done
+}
+
 # Push a row for output. Args: status, file, location, ref, detail.
+# In non-debug mode the row also streams to stdout immediately so users see
+# progress in real time. In --debug mode rows are accumulated and rendered as
+# an aligned per-file table by render_rows_slice.
 add_row() {
   ROWS+=("${1}|${2}|${3}|${4}|${5}")
+  if [[ "${DEBUG}" != "true" ]]; then
+    printf '%-*s  %-*s  %s\n' "${MAX_LOC_WIDTH}" "${3#spec.}" "${STATUS_WIDTH}" "${1}" "${5}"
+  fi
 }
 
 # Push a change row for both arrays. Args: file, location, before, after.
+# Detail column shape:
+#   image refs   → "<name>, <oldVer> → <newVer>"  (name = ref up to last `:`)
+#   apiVersion   → "<oldValue> → <newValue>"      (no `:` to split on)
 add_change() {
-  CHANGES+=("${1}|${2}|${3}|${4}")
-  add_row "CHANGE" "${1}" "${2}" "${3}" "→ ${4}"
+  local file="$1" location="$2" before="$3" after="$4"
+  CHANGES+=("${file}|${location}|${before}|${after}")
+  local detail
+  if [[ "${location}" == "apiVersion" ]]; then
+    detail="${before} → ${after}"
+  else
+    detail="${before%:*}, ${before##*:} → ${after##*:}"
+  fi
+  add_row "CHANGE" "${file}" "${location}" "${before}" "${detail}"
 }
 
-# Print the inline artifact-resolve error block to stderr and push an ERROR row.
+# Print the inline artifact-resolve error block to stderr (only in --debug),
+# track that an error occurred, and push an ERROR row.
+ERRORS_PRESENT=false
 record_resolve_error() {
   local file="$1" location="$2" ref="$3"
-  echo "----- artifact-resolve failed for ${ref} (${file} ${location}) -----" >&2
-  [[ -s "${RESOLVE_ERR_FILE:-}" ]] && cat "${RESOLVE_ERR_FILE}" >&2
-  echo "----- end -----" >&2
-  add_row "ERROR" "${file}" "${location}" "${ref}" "artifact-resolve failed (see error above)"
+  ERRORS_PRESENT=true
+  local detail_suffix
+  if [[ "${DEBUG}" == "true" ]]; then
+    echo "----- Error: artifact-resolve failed for ${ref} (${file} ${location}) -----" >&2
+    [[ -s "${RESOLVE_ERR_FILE:-}" ]] && cat "${RESOLVE_ERR_FILE}" >&2
+    echo "----- Error otuput ends -----" >&2
+    echo "" >&2
+    detail_suffix="see error above"
+  else
+    detail_suffix="use --debug to see the output"
+  fi
+  add_row "ERROR" "${file}" "${location}" "${ref}" "${ref}, artifact-resolve failed (${detail_suffix})"
 }
 
 # Process one entry. Decides which axis applies, records a row for every
@@ -561,13 +629,13 @@ process_entry() {
   local name="${REF_NAME}" version="${REF_VERSION}"
 
   if [[ "${version}" == *-PRERELEASE* ]]; then
-    add_row "SKIP" "${file}" "${location}" "${ref}" "PRERELEASE references are local-only and not updated"
+    add_row "SKIP" "${file}" "${location}" "${ref}" "${ref}, PRERELEASE references are local-only and not updated"
     return 0
   fi
 
   if version_is_exact "${version}"; then
     if [[ "${UPDATE_FIXED}" != "true" ]]; then
-      add_row "KEEP" "${file}" "${location}" "${ref}" "exact ref (pass --update-fixed to bump)"
+      add_row "KEEP" "${file}" "${location}" "${ref}" "${ref}, exact ref (pass --update-fixed to bump)"
       return 0
     fi
     # Determine bracket style to preserve [N] vs N
@@ -582,7 +650,7 @@ process_entry() {
       return 0
     fi
     if ! version_gt "${HIGHEST_VERSION}" "${plain}"; then
-      add_row "KEEP" "${file}" "${location}" "${ref}" "already at highest (${HIGHEST_VERSION})"
+      add_row "KEEP" "${file}" "${location}" "${ref}" "${ref}, already at highest (${HIGHEST_VERSION})"
       return 0
     fi
     local target_depth
@@ -599,7 +667,7 @@ process_entry() {
     if [[ "${new_ref}" != "${ref}" ]]; then
       add_change "${file}" "${location}" "${ref}" "${new_ref}"
     else
-      add_row "KEEP" "${file}" "${location}" "${ref}" "already at highest (${HIGHEST_VERSION})"
+      add_row "KEEP" "${file}" "${location}" "${ref}" "${ref}, already at highest (${HIGHEST_VERSION})"
     fi
     return 0
   fi
@@ -615,10 +683,10 @@ process_entry() {
       if [[ "${new_ref}" != "${ref}" ]]; then
         add_change "${file}" "${location}" "${ref}" "${new_ref}"
       else
-        add_row "KEEP" "${file}" "${location}" "${ref}" "range already covers highest (${HIGHEST_VERSION})"
+        add_row "KEEP" "${file}" "${location}" "${ref}" "${ref}, range already covers highest (${HIGHEST_VERSION})"
       fi
     else
-      add_row "KEEP" "${file}" "${location}" "${ref}" "open range, nothing to tighten (highest ${HIGHEST_VERSION})"
+      add_row "KEEP" "${file}" "${location}" "${ref}" "${ref}, open range, nothing to tighten (highest ${HIGHEST_VERSION})"
     fi
     return 0
   fi
@@ -634,16 +702,16 @@ process_entry() {
       if [[ "${new_ref}" != "${ref}" ]]; then
         add_change "${file}" "${location}" "${ref}" "${new_ref}"
       else
-        add_row "KEEP" "${file}" "${location}" "${ref}" "lower already at highest match (${MATCH_VERSION})"
+        add_row "KEEP" "${file}" "${location}" "${ref}" "${ref}, lower already at highest match (${MATCH_VERSION})"
       fi
     else
-      add_row "KEEP" "${file}" "${location}" "${ref}" "lower already at highest match (${MATCH_VERSION})"
+      add_row "KEEP" "${file}" "${location}" "${ref}" "${ref}, lower already at highest match (${MATCH_VERSION})"
     fi
     return 0
   fi
 
   # No axis enabled for this kind of ref.
-  add_row "KEEP" "${file}" "${location}" "${ref}" "no update axis enabled for this ref"
+  add_row "KEEP" "${file}" "${location}" "${ref}" "${ref}, no update axis enabled for this ref"
 }
 
 # -----------------------------------------------------------------------------
@@ -701,16 +769,16 @@ process_file() {
     local current
     current="$(yq -r '.apiVersion // ""' "${file}")"
     if [[ -z "${current}" ]]; then
-      add_row "SKIP" "${file}" "apiVersion" "(missing)" "no apiVersion field in file"
+      add_row "SKIP" "${file}" "apiVersion" "(missing)" "(missing), no apiVersion field in file"
     elif [[ "${current}" != kaptain.org/* ]]; then
-      add_row "SKIP" "${file}" "apiVersion" "${current}" "not a kaptain.org/ apiVersion"
+      add_row "SKIP" "${file}" "apiVersion" "${current}" "${current}, not a kaptain.org/ apiVersion"
     else
       local current_ver="${current#kaptain.org/}"
       local target="kaptain.org/${CURRENT_API_VERSION}"
       if version_gt "${CURRENT_API_VERSION}" "${current_ver}"; then
         add_change "${file}" "apiVersion" "${current}" "${target}"
       else
-        add_row "KEEP" "${file}" "apiVersion" "${current}" "already at schema version (${CURRENT_API_VERSION})"
+        add_row "KEEP" "${file}" "apiVersion" "${current}" "${current}, already at schema version (${CURRENT_API_VERSION})"
       fi
     fi
   fi
@@ -720,40 +788,71 @@ if [[ "${UPDATE_API_VERSION}" == "true" ]]; then
   read_schema_version
 fi
 
+# -----------------------------------------------------------------------------
+# Output (streamed per file)
+# -----------------------------------------------------------------------------
+
+# Render rows added to ROWS during a single process_file call. Three columns:
+# short-location (no leading `spec.`), status, disposition detail. Column
+# widths are computed per file, so each block is self-contained.
+short_location() {
+  local loc="$1"
+  printf '%s' "${loc#spec.}"
+}
+
+render_rows_slice() {
+  local from="$1" to="$2"
+  local i row s l d local_short
+  local w_loc=0 w_status=0
+
+  # First pass: column widths over this slice.
+  for ((i = from; i < to; i++)); do
+    row="${ROWS[$i]}"
+    IFS='|' read -r s _ l _ _ <<< "${row}"
+    local_short="${l#spec.}"
+    (( ${#local_short} > w_loc ))  && w_loc="${#local_short}"
+    (( ${#s} > w_status ))         && w_status="${#s}"
+  done
+
+  local fmt
+  printf -v fmt '%%-%ds  %%-%ds  %%s\n' "${w_loc}" "${w_status}"
+
+  # Second pass: render.
+  for ((i = from; i < to; i++)); do
+    row="${ROWS[$i]}"
+    IFS='|' read -r s _ l _ d <<< "${row}"
+    # shellcheck disable=SC2059
+    printf "${fmt}" "${l#spec.}" "${s}" "${d}"
+  done
+}
+
+compute_max_loc_width
+
+# Header up front so users see what's about to happen, then process and render
+# each file in turn. Errors written to stderr by record_resolve_error stream
+# inline between the "Processing" log and the file's table.
+if [[ ${#TARGET_FILES[@]} -eq 1 ]]; then
+  echo "Found 1 file to check and potentially update:"
+else
+  echo "Found ${#TARGET_FILES[@]} files to check and potentially update:"
+fi
+for tf in "${TARGET_FILES[@]}"; do
+  echo " * ${tf}"
+done
+echo ""
+
 for file in "${TARGET_FILES[@]}"; do
+  echo "Processing ${file}:"
+  rows_before=${#ROWS[@]}
   process_file "${file}"
+  rows_after=${#ROWS[@]}
+  if [[ "${DEBUG}" == "true" ]] && (( rows_after > rows_before )); then
+    render_rows_slice "${rows_before}" "${rows_after}"
+  fi
+  echo ""
 done
 
-# -----------------------------------------------------------------------------
-# Output
-# -----------------------------------------------------------------------------
-
 CHANGES_COUNT=${#CHANGES[@]}
-ROWS_COUNT=${#ROWS[@]}
-
-# Print one aligned line per checked entry. Status comes first as a fixed
-# label, then file / location / ref, then the disposition detail.
-if [[ ${ROWS_COUNT} -gt 0 ]]; then
-  W_STATUS=0
-  W_FILE=0
-  W_LOC=0
-  W_REF=0
-  for row in "${ROWS[@]}"; do
-    IFS='|' read -r s f l r _ <<< "${row}"
-    (( ${#s} > W_STATUS )) && W_STATUS="${#s}"
-    (( ${#f} > W_FILE ))   && W_FILE="${#f}"
-    (( ${#l} > W_LOC ))    && W_LOC="${#l}"
-    (( ${#r} > W_REF ))    && W_REF="${#r}"
-  done
-
-  printf -v fmt '%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s\n' \
-    "${W_STATUS}" "${W_FILE}" "${W_LOC}" "${W_REF}"
-  for row in "${ROWS[@]}"; do
-    IFS='|' read -r s f l r d <<< "${row}"
-    # shellcheck disable=SC2059
-    printf "${fmt}" "${s}" "${f}" "${l}" "${r}" "${d}"
-  done
-fi
 
 # Apply changes (unless dry-run)
 if [[ "${DRY_RUN}" != "true" && ${CHANGES_COUNT} -gt 0 ]]; then
@@ -775,14 +874,16 @@ if [[ "${DRY_RUN}" != "true" && ${CHANGES_COUNT} -gt 0 ]]; then
     fi
   done
   files_list="${files_seen//|/ }"
-  echo ""
   echo "${CHANGES_COUNT} change(s) applied across ${files_count} file(s)."
   echo "Review with: git diff ${files_list}"
   echo "Commit with: git add ${files_list} && git commit -m 'Update versions'"
 elif [[ ${CHANGES_COUNT} -gt 0 ]]; then
-  echo ""
   echo "${CHANGES_COUNT} change(s) would be applied (dry run)."
 else
-  echo ""
   echo "No changes."
+fi
+
+if [[ "${ERRORS_PRESENT}" == "true" && "${DEBUG}" != "true" ]]; then
+  echo ""
+  echo "ERRORS present, please run again with --debug to see the output."
 fi
