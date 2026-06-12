@@ -388,8 +388,15 @@ assemble_range() {
 RESOLVE_TMPDIR="$(mktemp -d -t kaptain-update-versions.XXXXXX)"
 trap 'rm -rf "${RESOLVE_TMPDIR}"' EXIT
 
+# Per-section artifact variant suffix passed to artifact-resolve. The docker
+# provider uses this to filter remote tags to `*-<variant>` multi-arch indices
+# (e.g. `1.7.1.2-manifests`), strip the suffix for range matching, then
+# reconstruct the resolved URI with the suffix re-appended. Set by
+# process_file before iterating each section; empty for plain image refs.
+RESOLVE_VARIANT=""
+
 # Resolve a single ref against the registry. IS_RELEASE=true so prereleases
-# are filtered. Sets RESOLVED_VERSION (the version part, no name).
+# are filtered. Sets RESOLVED_VERSION (the version part minus any variant).
 # Returns 0 on success, 1 if artifact-resolve failed.
 resolve_to_version() {
   local ref="$1"
@@ -399,12 +406,18 @@ resolve_to_version() {
   rm -f "${out}" "${err}"
   RESOLVE_ERR_FILE="${err}"
   RESOLVED_VERSION=""
-  if ! IS_RELEASE=true "${ARTIFACT_RESOLVE}" "${ref}" "${out}" >"${err}" 2>&1; then
+  if ! IS_RELEASE=true "${ARTIFACT_RESOLVE}" "${ref}" "${out}" "${RESOLVE_VARIANT}" >"${err}" 2>&1; then
     return 1
   fi
   local resolved
   resolved="$(<"${out}")"
-  RESOLVED_VERSION="${resolved##*:}"
+  local version="${resolved##*:}"
+  # Strip the variant suffix the provider re-appended so callers compare
+  # canonical numeric versions.
+  if [[ -n "${RESOLVE_VARIANT}" && "${version}" == *"-${RESOLVE_VARIANT}" ]]; then
+    version="${version%"-${RESOLVE_VARIANT}"}"
+  fi
+  RESOLVED_VERSION="${version}"
   return 0
 }
 
@@ -667,6 +680,13 @@ process_file() {
       if [[ "${count}" -eq 0 ]]; then
         continue
       fi
+      # spec.templates and spec.contents resolve through the manifests
+      # multi-arch index variant (matching the layer-package / content-resolve
+      # pipeline in buildon). spec.layers refs are plain image refs.
+      case "${section}" in
+        templates|contents) RESOLVE_VARIANT="manifests" ;;
+        *)                  RESOLVE_VARIANT="" ;;
+      esac
       local i
       for ((i = 0; i < count; i++)); do
         local entry
@@ -674,6 +694,7 @@ process_file() {
         process_entry "${file}" "spec.${section}[${i}]" "${entry}"
       done
     done
+    RESOLVE_VARIANT=""
   fi
 
   if [[ "${UPDATE_API_VERSION}" == "true" ]]; then
