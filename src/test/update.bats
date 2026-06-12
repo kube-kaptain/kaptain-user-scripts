@@ -68,13 +68,17 @@ version_is_exact() {
 LIB
 
   # Stub artifact-resolve: looks up ${responses}/<sanitised-ref> for the
-  # resolved URI to write. If missing, fails (simulating registry failure).
+  # resolved URI to write. Records every call (ref|variant) to calls.log so
+  # tests can assert what variant flowed through. If a fixture is missing,
+  # fails (simulating registry failure).
   cat > "${FAKE_BUILD_ROOT}/src/scripts/util/artifact-resolve" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
 ref="${1}"
 out="${2}"
+variant="${3:-}"
 resp_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../../../responses && pwd)"
+echo "${ref}|${variant}" >> "${resp_dir}/calls.log"
 safe="${ref//[^a-zA-Z0-9._-]/_}"
 if [[ -f "${resp_dir}/${safe}" ]]; then
   cat "${resp_dir}/${safe}" > "${out}"
@@ -221,8 +225,7 @@ YAML
   KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
     run "${TEST_BUILD}/kaptain-update-versions" --dry-run
   [ "$status" -eq 0 ]
-  [[ "$output" == *"layer-foo:[1.2.0,2.0.0)"* ]]
-  [[ "$output" == *"[1.7.3,2.0.0)"* ]]
+  [[ "$output" == *"CHANGE"*"layer-foo, [1.2.0,2.0.0) → [1.7.3,2.0.0)"* ]]
   [[ "$output" == *"would be applied"* ]]
   # Original file untouched
   grep -q 'layer-foo:\[1.2.0,2.0.0)' "${project}/KaptainPM.yaml"
@@ -337,6 +340,56 @@ YAML
   [ "$status" -eq 0 ]
   run cat "${project}/KaptainPM.yaml"
   [[ "$output" == *'layer-foo:[1.7]'* ]]
+}
+
+# Regression: when artifact-resolve fails for an entry, the row must be ERROR,
+# not KEEP carrying the previous entry's resolved version (sticky globals bug).
+@test "kaptain-update-versions: --update-fixed reports ERROR (not stale KEEP) when resolve fails" {
+  make_fake_build_root
+  local project="${BATS_TEST_TMPDIR}/proj-sticky-fixed"
+  mkdir -p "${project}"
+  cat > "${project}/KaptainPM.yaml" <<'YAML'
+apiVersion: kaptain.org/1.18
+kind: docker-build-dockerfile
+spec:
+  layers:
+    - layer-good:1.3
+    - layer-bad:1.7
+YAML
+  fixture "layer-good:[0,)" "ghcr.io/x/layer-good:1.3"
+  # No fixture for layer-bad:[0,) — artifact-resolve fails.
+
+  cd "${project}"
+  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
+    run "${TEST_BUILD}/kaptain-update-versions" --update-fixed --no-update-lower-bounds
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"KEEP"*"layer-good:1.3"*"already at highest (1.3)"* ]]
+  [[ "$output" == *"ERROR"*"layer-bad:1.7"* ]]
+  # layer-bad must NOT have leaked layer-good's resolved version into a KEEP.
+  ! grep -E 'layer-bad.*already at highest' <<< "$output"
+}
+
+@test "kaptain-update-versions: standard mode reports ERROR (not stale KEEP) when resolve fails" {
+  make_fake_build_root
+  local project="${BATS_TEST_TMPDIR}/proj-sticky-lb"
+  mkdir -p "${project}"
+  cat > "${project}/KaptainPM.yaml" <<'YAML'
+apiVersion: kaptain.org/1.18
+kind: docker-build-dockerfile
+spec:
+  layers:
+    - layer-good:[1.0,2.0)
+    - layer-bad:[1.0,2.0)
+YAML
+  fixture "layer-good:[1.0,2.0)" "ghcr.io/x/layer-good:1.5"
+  # No fixture for layer-bad — artifact-resolve fails.
+
+  cd "${project}"
+  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
+    run "${TEST_BUILD}/kaptain-update-versions"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ERROR"*"layer-bad:[1.0,2.0)"* ]]
+  ! grep -E 'layer-bad.*lower already at highest' <<< "$output"
 }
 
 # =============================================================================
@@ -569,6 +622,40 @@ YAML
   grep -q 'layer-a:\[1.5.0,2.0.0)' "${project}/KaptainPM.yaml"
   grep -q 'tmpl-b:\[1.6.0,2.0.0)' "${project}/src/layer/KaptainPM.yaml"
   grep -q 'cont-c:\[1.7.0,2.0.0)' "${project}/src/layerset/KaptainPM.yaml"
+}
+
+@test "kaptain-update-versions: passes manifests variant for templates and contents, empty for layers" {
+  make_fake_build_root
+  local project="${BATS_TEST_TMPDIR}/proj-variant"
+  mkdir -p "${project}"
+  cat > "${project}/KaptainPM.yaml" <<'YAML'
+apiVersion: kaptain.org/1.18
+kind: kaptain-layerset
+spec:
+  layers:
+    - layer-a:[1.0.0,2.0.0)
+  templates:
+    - tmpl-b:[1.0.0,2.0.0)
+  contents:
+    - cont-c:[1.0.0,2.0.0)
+YAML
+  fixture "layer-a:[1.0.0,2.0.0)" "ghcr.io/x/layer-a:1.5.0"
+  fixture "tmpl-b:[1.0.0,2.0.0)" "ghcr.io/x/tmpl-b:1.6.0-manifests"
+  fixture "cont-c:[1.0.0,2.0.0)" "ghcr.io/x/cont-c:1.7.0-manifests"
+  cd "${project}"
+  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
+    run "${TEST_BUILD}/kaptain-update-versions"
+  [ "$status" -eq 0 ]
+  local calls="${FAKE_BUILD_ROOT}/responses/calls.log"
+  [ -f "${calls}" ]
+  grep -qx 'layer-a:\[1.0.0,2.0.0)|' "${calls}"
+  grep -qx 'tmpl-b:\[1.0.0,2.0.0)|manifests' "${calls}"
+  grep -qx 'cont-c:\[1.0.0,2.0.0)|manifests' "${calls}"
+  # The provider re-appends the variant; the user-script must strip it so the
+  # numeric version it writes into the lower bound is canonical.
+  grep -q 'tmpl-b:\[1.6.0,2.0.0)' "${project}/KaptainPM.yaml"
+  grep -q 'cont-c:\[1.7.0,2.0.0)' "${project}/KaptainPM.yaml"
+  grep -q 'layer-a:\[1.5.0,2.0.0)' "${project}/KaptainPM.yaml"
 }
 
 # =============================================================================
