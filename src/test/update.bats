@@ -339,6 +339,56 @@ YAML
   [[ "$output" == *'layer-foo:[1.7]'* ]]
 }
 
+# Regression: when artifact-resolve fails for an entry, the row must be ERROR,
+# not KEEP carrying the previous entry's resolved version (sticky globals bug).
+@test "kaptain-update-versions: --update-fixed reports ERROR (not stale KEEP) when resolve fails" {
+  make_fake_build_root
+  local project="${BATS_TEST_TMPDIR}/proj-sticky-fixed"
+  mkdir -p "${project}"
+  cat > "${project}/KaptainPM.yaml" <<'YAML'
+apiVersion: kaptain.org/1.18
+kind: docker-build-dockerfile
+spec:
+  layers:
+    - layer-good:1.3
+    - layer-bad:1.7
+YAML
+  fixture "layer-good:[0,)" "ghcr.io/x/layer-good:1.3"
+  # No fixture for layer-bad:[0,) — artifact-resolve fails.
+
+  cd "${project}"
+  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
+    run "${TEST_BUILD}/kaptain-update-versions" --update-fixed --no-update-lower-bounds
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"KEEP"*"layer-good:1.3"*"already at highest (1.3)"* ]]
+  [[ "$output" == *"ERROR"*"layer-bad:1.7"* ]]
+  # layer-bad must NOT have leaked layer-good's resolved version into a KEEP.
+  ! grep -E 'layer-bad.*already at highest' <<< "$output"
+}
+
+@test "kaptain-update-versions: standard mode reports ERROR (not stale KEEP) when resolve fails" {
+  make_fake_build_root
+  local project="${BATS_TEST_TMPDIR}/proj-sticky-lb"
+  mkdir -p "${project}"
+  cat > "${project}/KaptainPM.yaml" <<'YAML'
+apiVersion: kaptain.org/1.18
+kind: docker-build-dockerfile
+spec:
+  layers:
+    - layer-good:[1.0,2.0)
+    - layer-bad:[1.0,2.0)
+YAML
+  fixture "layer-good:[1.0,2.0)" "ghcr.io/x/layer-good:1.5"
+  # No fixture for layer-bad — artifact-resolve fails.
+
+  cd "${project}"
+  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
+    run "${TEST_BUILD}/kaptain-update-versions"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ERROR"*"layer-bad:[1.0,2.0)"* ]]
+  ! grep -E 'layer-bad.*lower already at highest' <<< "$output"
+}
+
 # =============================================================================
 # --update-ranges — algorithm-bearing cases
 # =============================================================================

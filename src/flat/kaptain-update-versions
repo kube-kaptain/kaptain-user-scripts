@@ -398,6 +398,7 @@ resolve_to_version() {
   local err="${RESOLVE_TMPDIR}/${safe}.err"
   rm -f "${out}" "${err}"
   RESOLVE_ERR_FILE="${err}"
+  RESOLVED_VERSION=""
   if ! IS_RELEASE=true "${ARTIFACT_RESOLVE}" "${ref}" "${out}" >"${err}" 2>&1; then
     return 1
   fi
@@ -411,8 +412,9 @@ resolve_to_version() {
 # Sets HIGHEST_VERSION.
 resolve_highest() {
   local name="$1"
+  HIGHEST_VERSION=""
   # `[0,)` matches every numeric version. IS_RELEASE filters prereleases out.
-  resolve_to_version "${name}:[0,)"
+  resolve_to_version "${name}:[0,)" || return 1
   HIGHEST_VERSION="${RESOLVED_VERSION:-}"
   [[ -n "${HIGHEST_VERSION}" ]]
 }
@@ -421,7 +423,8 @@ resolve_highest() {
 # Sets MATCH_VERSION (the version inside the range).
 resolve_match() {
   local ref="$1"
-  resolve_to_version "${ref}"
+  MATCH_VERSION=""
+  resolve_to_version "${ref}" || return 1
   MATCH_VERSION="${RESOLVED_VERSION:-}"
   [[ -n "${MATCH_VERSION}" ]]
 }
