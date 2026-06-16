@@ -38,7 +38,7 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 ## Build Subcommand
 
 - Checks `KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT` is set and valid
-- Resolves `kind` from `KaptainPM.yaml` (project root), cached `kaptainpm/final/KaptainPM.yaml`, or by running `kaptain-init`
+- Reads `kind` from `KaptainPM.yaml` (project root) — required, fails fast if missing
 - Cleans build output (always)
 - Dispatches to `src/scripts/reference/<kind>` in the build scripts repo
 
