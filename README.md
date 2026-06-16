@@ -159,8 +159,12 @@ Brew instructions are repeated below from [the above repo docs](https://github.c
 
 ```bash
 brew tap kube-kaptain/kaptain
+brew trust kube-kaptain/kaptain
 brew install kaptain
 ```
+
+Recent Homebrew versions require `brew trust` for third-party taps before installs
+will proceed without prompting.
 
 ## Future Packaging
 
