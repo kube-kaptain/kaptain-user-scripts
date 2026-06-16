@@ -221,7 +221,7 @@ create_file_with_time() {
   run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Listing ${TEST_LIST}/config:"* ]] || false
-  [[ "$output" == *"One newline (consider stripping):"* ]] || false
+  [[ "$output" == *"One newline (run kaptain normalise config to strip):"* ]] || false
   [[ "$output" == *"hostname:"*"localhost"* ]] || false
   [[ "$output" == *"1 one-newline"* ]] || false
 }
@@ -260,7 +260,7 @@ create_file_with_time() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"No newline (usually correct):"* ]]
   [[ "$output" == *"no-nl:"*"no-trailing-newline"* ]]
-  [[ "$output" == *"One newline (consider stripping):"* ]]
+  [[ "$output" == *"One newline (run kaptain normalise config to strip):"* ]]
   [[ "$output" == *"one-nl:"*"one-newline-value"* ]]
   [[ "$output" == *"Multiline (cat <file> to inspect):"* ]]
   [[ "$output" == *"two-nl:"*"2 lines"* ]]
@@ -283,7 +283,7 @@ create_file_with_time() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"Multiline (cat <file> to inspect):"* ]]
   [[ "$output" == *"mid-nl:"*"1 lines"* ]]
-  [[ "$output" != *"One newline (consider stripping):"* ]]
+  [[ "$output" != *"One newline (run kaptain normalise config to strip):"* ]]
   [[ "$output" == *"1 multiline"* ]]
 }
 

@@ -137,7 +137,7 @@ print_categorised() {
 
   if [[ ${#one_newline_rels[@]} -gt 0 ]]; then
     echo ""
-    echo "${indent}One newline (consider stripping):"
+    echo "${indent}One newline (run kaptain normalise config to strip):"
     for i in "${!one_newline_rels[@]}"; do
       printf "${indent}  %-${pad}s%s\n" "${one_newline_rels[$i]}:" "${one_newline_vals[$i]}"
     done

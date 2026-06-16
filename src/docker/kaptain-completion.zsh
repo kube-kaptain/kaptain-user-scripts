@@ -38,6 +38,7 @@ _kaptain_flags() {
     kaptain-update-versions)            echo "--all --api-version --debug --dry-run --file --help --no-update-lower-bounds --update-all --update-fixed --update-lower-bounds --update-ranges -h" ;;
     kaptain-clean)                      echo "--help -h" ;;
     kaptain-list)                       echo "--help -h" ;;
+    kaptain-normalise)                  echo "--help -h" ;;
     kaptain-setup)                      echo "--help -h" ;;
     kaptain-decrypt)                    echo "--dir --help --type -h" ;;
     kaptain-decrypt-age)                echo "--dir --help --key-file -h" ;;
@@ -60,6 +61,7 @@ _kaptain_flags() {
     kaptain-list-images)                echo "--all --all-same-reg-ns --exclude-prereleases --exclude-releases --extra-prefixes --help --include-prereleases --include-releases --prefix -h" ;;
     kaptain-list-manifests)             echo "--all --dir --help -h" ;;
     kaptain-list-secrets)               echo "--all --dir --help --verbose -h -v" ;;
+    kaptain-normalise-config)           echo "--all --defaults-dir --dir --dry-run --help -h" ;;
     kaptain-setup-brew)                 echo "--apps-in-home --copy-fred --help -h" ;;
   esac
 }
