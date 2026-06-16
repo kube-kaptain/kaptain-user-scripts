@@ -37,6 +37,7 @@ describe_command() {
     encrypt)                echo "Encrypt secrets in a directory" ;;
     decrypt)                echo "Decrypt secrets in a directory" ;;
     rotate-key-for-secrets) echo "Rotate encryption key for secrets" ;;
+    normalise)              echo "Normalise config files (strip stray trailing newlines)" ;;
     build)                  echo "Build a kaptain project locally" ;;
     clean-project)          echo "Clean build output directories" ;;
     clean-images)           echo "Remove PRERELEASE-tagged container images" ;;
@@ -116,6 +117,17 @@ Utility Commands:
 
   kaptain clean secrets [--dir DIR] [--all]
     Remove decrypted secret files (.raw, .txt)
+
+  kaptain normalise config [--dir DIR] [--defaults-dir DIR] [--dry-run] [--all]
+    Strip the trailing newline from single-line config and defaults files.
+    Targets files with exactly one '\n' — the same set flagged as
+    "One newline (run kaptain normalise config to strip)" by `kaptain list
+    config`. Zero-newline files are already canonical; multi-newline files
+    are treated as intentional and left alone.
+    --dir           Config directory (default: src/config)
+    --defaults-dir  Defaults directory (default: src/defaults)
+    --dry-run       Show what would change without writing
+    --all           Normalise all projects in branchout tree
 
   kaptain clean images [--all|--all-same-reg-ns|--prefix=X]
                        [--extra-prefixes=A,B,...]

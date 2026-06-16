@@ -221,7 +221,7 @@ create_file_with_time() {
   run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Listing ${TEST_LIST}/config:"* ]] || false
-  [[ "$output" == *"One newline (consider stripping):"* ]] || false
+  [[ "$output" == *"One newline (run kaptain normalise config to strip):"* ]] || false
   [[ "$output" == *"hostname:"*"localhost"* ]] || false
   [[ "$output" == *"1 one-newline"* ]] || false
 }
@@ -260,7 +260,7 @@ create_file_with_time() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"No newline (usually correct):"* ]]
   [[ "$output" == *"no-nl:"*"no-trailing-newline"* ]]
-  [[ "$output" == *"One newline (consider stripping):"* ]]
+  [[ "$output" == *"One newline (run kaptain normalise config to strip):"* ]]
   [[ "$output" == *"one-nl:"*"one-newline-value"* ]]
   [[ "$output" == *"Multiline (cat <file> to inspect):"* ]]
   [[ "$output" == *"two-nl:"*"2 lines"* ]]
@@ -270,6 +270,21 @@ create_file_with_time() {
   [[ "$output" == *"2 multiline"* ]]
   # Verify comma-space separation in summary
   [[ "$output" == *"1 no-newline, 1 one-newline, 2 multiline"* ]]
+}
+
+@test "list-config: one-newline-mid-file classified as Multiline, not One newline" {
+  # A two-line file with no trailing newline has newline_count == 1 but the
+  # newline is mid-file, so it is actually a multi-line value, not a strippable
+  # trailing-newline file. Stripping it would lose data.
+  mkdir -p "${TEST_LIST}/config"
+  printf 'line1\nline2' > "${TEST_LIST}/config/mid-nl"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Multiline (cat <file> to inspect):"* ]]
+  [[ "$output" == *"mid-nl:"*"1 lines"* ]]
+  [[ "$output" != *"One newline (run kaptain normalise config to strip):"* ]]
+  [[ "$output" == *"1 multiline"* ]]
 }
 
 @test "list-config: works with custom dir" {

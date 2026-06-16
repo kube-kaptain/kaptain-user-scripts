@@ -1,0 +1,362 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Normalise single-line config and defaults files by stripping the trailing
+# newline. Mirrors the "One newline (run kaptain normalise config to strip)"
+# category reported by `kaptain list config`: files with exactly one '\n' are
+# rewritten without it. Files with zero or two-or-more newlines are left
+# untouched.
+#
+# Usage: kaptain normalise config [--dir DIR] [--defaults-dir DIR] [--dry-run] [--all]
+set -euo pipefail
+
+CONFIG_DIR="${KAPTAIN_USER_SCRIPTS_CONFIG_DIR:-src/config}"
+DEFAULTS_DIR="${KAPTAIN_USER_SCRIPTS_DEFAULTS_DIR:-src/defaults}"
+CONFIG_DIR_EXPLICIT=false
+DEFAULTS_DIR_EXPLICIT=false
+DRY_RUN=false
+ALL_PROJECTS=false
+NORMALISED_COUNT=0
+NO_NEWLINE_COUNT=0
+MULTI_NEWLINE_COUNT=0
+LAST_NORMALISED_COUNT=0
+LAST_NO_NEWLINE_COUNT=0
+LAST_MULTI_NEWLINE_COUNT=0
+
+# "file" / "files" for proper pluralisation
+file_word() {
+  if [[ "$1" -eq 1 ]]; then echo "file"; else echo "files"; fi
+}
+
+usage() {
+  echo "Usage: kaptain normalise config [--dir DIR] [--defaults-dir DIR] [--dry-run] [--all]"
+  echo ""
+  echo "Strip the trailing newline from single-line config and defaults files."
+  echo "Targets files with exactly one '\\n' (the same set flagged as 'One newline"
+  echo "(run kaptain normalise config to strip)' by 'kaptain list config')."
+  echo "Zero-newline files are already canonical; multi-newline files are"
+  echo "treated as intentional."
+  echo ""
+  echo "Options:"
+  echo "  --dir DIR           Config directory (default: src/config)"
+  echo "  --defaults-dir DIR  Defaults directory (default: src/defaults)"
+  echo "  --dry-run           Show what would change without writing"
+  echo "  --all               Normalise all projects in branchout tree"
+  echo "  -h, --help          Show this help"
+}
+
+# Find branchout root by walking up from cwd
+# Sets BRANCHOUT_ROOT on success, exits on failure
+find_branchout_root() {
+  local dir="${PWD}"
+  BRANCHOUT_PROJECTS_DIRECTORY="${BRANCHOUT_PROJECTS_DIRECTORY:-projects}"
+  # shellcheck disable=SC1091
+  test -f ~/.config/branchoutrc && source ~/.config/branchoutrc
+  local home_projects="${HOME}/${BRANCHOUT_PROJECTS_DIRECTORY}"
+
+  if [[ "${dir}" != "${home_projects}/"* ]]; then
+    echo "ERROR: Not under ${home_projects}/, cannot find branchout tree" >&2
+    exit 1
+  fi
+
+  while [[ "${dir}" != "${home_projects}" && "${dir}" != "/" ]]; do
+    if [[ -f "${dir}/Branchoutfile" && -f "${dir}/Branchoutprojects" ]]; then
+      BRANCHOUT_ROOT="${dir}"
+      return 0
+    fi
+    dir=$(dirname "${dir}")
+  done
+
+  echo "ERROR: Branchout root not found" >&2
+  echo "ERROR: Cannot safely perform --all normalising without a valid structure" >&2
+  exit 1
+}
+
+# Normalise a single file: if it has exactly one newline, strip it.
+# Updates globals: NORMALISED_COUNT, NO_NEWLINE_COUNT, MULTI_NEWLINE_COUNT
+# and the matching LAST_* per-directory counters.
+normalise_file() {
+  local file="$1"
+  local strip_prefix="${2:-}"
+  local display="${file#"${strip_prefix}"}"
+
+  local newline_count
+  newline_count=$(tr -cd '\n' < "${file}" | wc -c | tr -d '[:space:]')
+
+  if [[ "${newline_count}" -eq 0 ]]; then
+    NO_NEWLINE_COUNT=$((NO_NEWLINE_COUNT + 1))
+    LAST_NO_NEWLINE_COUNT=$((LAST_NO_NEWLINE_COUNT + 1))
+    return 0
+  fi
+
+  # Sentinel pattern: $() strips trailing newlines, so append a marker first.
+  local tail_byte
+  tail_byte="$(tail -c 1 "${file}"; printf X)"
+  tail_byte="${tail_byte%X}"
+
+  # Multi-newline OR one newline mid-file → multi-line, leave alone.
+  if [[ "${newline_count}" -gt 1 || "${tail_byte}" != $'\n' ]]; then
+    MULTI_NEWLINE_COUNT=$((MULTI_NEWLINE_COUNT + 1))
+    LAST_MULTI_NEWLINE_COUNT=$((LAST_MULTI_NEWLINE_COUNT + 1))
+    return 0
+  fi
+
+  # Exactly one newline. Bash command substitution strips ALL trailing newlines,
+  # giving us the canonical form for free.
+  local stripped
+  stripped="$(cat "${file}")"
+
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    echo "  would normalise: ${display}"
+  else
+    printf '%s' "${stripped}" > "${file}"
+    echo "  normalised: ${display}"
+  fi
+  NORMALISED_COUNT=$((NORMALISED_COUNT + 1))
+  LAST_NORMALISED_COUNT=$((LAST_NORMALISED_COUNT + 1))
+}
+
+# Normalise all files in a directory tree.
+normalise_dir() {
+  local dir="$1"
+  local strip_prefix="${2:-}"
+  local label="${3:-${dir}}"
+
+  LAST_NORMALISED_COUNT=0
+  LAST_NO_NEWLINE_COUNT=0
+  LAST_MULTI_NEWLINE_COUNT=0
+
+  local files=()
+  while IFS= read -r -d '' f; do
+    files+=("$f")
+  done < <(find "${dir}" -type f -print0 2>/dev/null | sort -z)
+
+  if [[ ${#files[@]} -eq 0 ]]; then
+    echo "No files found in ${label}"
+    return 0
+  fi
+
+  echo "Scanning ${#files[@]} $(file_word ${#files[@]}) in ${label}"
+  local f
+  for f in "${files[@]}"; do
+    normalise_file "${f}" "${strip_prefix}"
+  done
+}
+
+# Normalise the config + defaults pair for one project root.
+#   $1 = filesystem prefix ("" for cwd, "<abs path>/" for branchout iteration)
+#   $2 = display name to append after "in" ("" for none, e.g. "group/group-alpha")
+# Returns 1 if neither config nor defaults dir exists.
+normalise_project() {
+  local prefix="$1"
+  local display_in="${2:-}"
+  local config_path="${prefix}${CONFIG_DIR}"
+  local defaults_path="${prefix}${DEFAULTS_DIR}"
+
+  local has_config=false
+  local has_defaults=false
+  [[ -d "${config_path}" ]] && has_config=true
+  [[ -d "${defaults_path}" ]] && has_defaults=true
+
+  if [[ "${has_config}" == "false" && "${has_defaults}" == "false" ]]; then
+    return 1
+  fi
+
+  local in_suffix=""
+  [[ -n "${display_in}" ]] && in_suffix=" in ${display_in}"
+
+  local label
+  if [[ "${has_config}" == "true" && "${has_defaults}" == "true" ]]; then
+    label="config and defaults"
+  elif [[ "${has_config}" == "true" ]]; then
+    label="config"
+  else
+    label="defaults"
+  fi
+  echo "Normalising ${label}${in_suffix}:"
+
+  local c_norm=0 c_none=0 c_skip=0 d_norm=0 d_none=0 d_skip=0
+
+  if [[ "${has_config}" == "true" ]]; then
+    echo ""
+    echo "[${CONFIG_DIR}]"
+    normalise_dir "${config_path}" "${prefix}" "${CONFIG_DIR}"
+    c_norm=${LAST_NORMALISED_COUNT}
+    c_none=${LAST_NO_NEWLINE_COUNT}
+    c_skip=${LAST_MULTI_NEWLINE_COUNT}
+  fi
+
+  if [[ "${has_defaults}" == "true" ]]; then
+    echo ""
+    echo "[${DEFAULTS_DIR}]"
+    normalise_dir "${defaults_path}" "${prefix}" "${DEFAULTS_DIR}"
+    d_norm=${LAST_NORMALISED_COUNT}
+    d_none=${LAST_NO_NEWLINE_COUNT}
+    d_skip=${LAST_MULTI_NEWLINE_COUNT}
+  fi
+
+  if [[ "${has_config}" == "true" && "${has_defaults}" == "true" ]]; then
+    local config_label="${CONFIG_DIR}:"
+    local defaults_label="${DEFAULTS_DIR}:"
+    local max_len=${#config_label}
+    [[ ${#defaults_label} -gt ${max_len} ]] && max_len=${#defaults_label}
+    [[ 6 -gt ${max_len} ]] && max_len=6
+    local pad=$((max_len + 1))
+    echo ""
+    echo "Summary:"
+    printf "  %-${pad}s %d normalised, %d no-newline, %d multi-newline\n" "${config_label}" "${c_norm}" "${c_none}" "${c_skip}"
+    printf "  %-${pad}s %d normalised, %d no-newline, %d multi-newline\n" "${defaults_label}" "${d_norm}" "${d_none}" "${d_skip}"
+    printf "  %-${pad}s %d normalised, %d no-newline, %d multi-newline\n" "Total:" "$((c_norm + d_norm))" "$((c_none + d_none))" "$((c_skip + d_skip))"
+  fi
+
+  return 0
+}
+
+# Normalise across the whole branchout tree.
+normalise_all_projects() {
+  find_branchout_root
+  echo "Found branchout root: ${BRANCHOUT_ROOT}"
+
+  # Compute search depth from CONFIG_DIR/DEFAULTS_DIR segment count + 2 (group/project)
+  local config_segments defaults_segments
+  config_segments=$(awk -F/ '{print NF}' <<< "${CONFIG_DIR}")
+  defaults_segments=$(awk -F/ '{print NF}' <<< "${DEFAULTS_DIR}")
+  local config_depth=$((2 + config_segments))
+  local defaults_depth=$((2 + defaults_segments))
+
+  local hits=""
+  hits+=$(find "${BRANCHOUT_ROOT}" -mindepth "${config_depth}" -maxdepth "${config_depth}" -type d -path "*/${CONFIG_DIR}" 2>/dev/null)
+  if [[ -n "${hits}" ]]; then
+    hits+=$'\n'
+  fi
+  hits+=$(find "${BRANCHOUT_ROOT}" -mindepth "${defaults_depth}" -maxdepth "${defaults_depth}" -type d -path "*/${DEFAULTS_DIR}" 2>/dev/null)
+
+  if [[ -z "${hits}" ]]; then
+    echo ""
+    echo "No projects found with ${CONFIG_DIR} or ${DEFAULTS_DIR}"
+    exit 0
+  fi
+
+  # Strip the matched suffix to get project root, dedup
+  local project_roots=()
+  local seen="|"
+  local line root
+  while IFS= read -r line; do
+    [[ -z "${line}" ]] && continue
+    if [[ "${line}" == */"${CONFIG_DIR}" ]]; then
+      root="${line%/"${CONFIG_DIR}"}"
+    elif [[ "${line}" == */"${DEFAULTS_DIR}" ]]; then
+      root="${line%/"${DEFAULTS_DIR}"}"
+    else
+      continue
+    fi
+    if [[ "${seen}" != *"|${root}|"* ]]; then
+      seen+="${root}|"
+      project_roots+=("${root}")
+    fi
+  done <<< "${hits}"
+
+  local sorted_roots=()
+  while IFS= read -r line; do
+    sorted_roots+=("${line}")
+  done < <(printf '%s\n' "${project_roots[@]}" | sort)
+
+  echo ""
+  echo "Found ${#sorted_roots[@]} project(s) with ${CONFIG_DIR} or ${DEFAULTS_DIR}:"
+  echo ""
+  local r
+  for r in "${sorted_roots[@]}"; do
+    echo "  ${r#"${BRANCHOUT_ROOT}/"}"
+  done
+
+  local touched=0
+  for r in "${sorted_roots[@]}"; do
+    echo ""
+    normalise_project "${r}/" "${r#"${BRANCHOUT_ROOT}/"}" || true
+    touched=$((touched + 1))
+  done
+
+  echo ""
+  echo "Done. Visited ${touched} project(s)."
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --dir requires a value" >&2
+        usage
+        exit 1
+      fi
+      CONFIG_DIR="$2"
+      CONFIG_DIR_EXPLICIT=true
+      shift 2
+      ;;
+    --defaults-dir)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --defaults-dir requires a value" >&2
+        usage
+        exit 1
+      fi
+      DEFAULTS_DIR="$2"
+      DEFAULTS_DIR_EXPLICIT=true
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --all)
+      ALL_PROJECTS=true
+      shift
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+if [[ "${CONFIG_DIR}" == /* ]]; then
+  echo "ERROR: --dir must be a relative path, i.e. a sub path of this repo" >&2
+  exit 1
+fi
+if [[ "${DEFAULTS_DIR}" == /* ]]; then
+  echo "ERROR: --defaults-dir must be a relative path, i.e. a sub path of this repo" >&2
+  exit 1
+fi
+
+# Strip trailing slashes so depth calcs and path math behave consistently
+while [[ "${CONFIG_DIR}" == */ ]]; do CONFIG_DIR="${CONFIG_DIR%/}"; done
+while [[ "${DEFAULTS_DIR}" == */ ]]; do DEFAULTS_DIR="${DEFAULTS_DIR%/}"; done
+
+if [[ "${ALL_PROJECTS}" == "true" ]]; then
+  normalise_all_projects
+else
+  if [[ "${CONFIG_DIR_EXPLICIT}" == "true" && ! -d "${CONFIG_DIR}" ]]; then
+    echo "ERROR: Config directory not found: ${CONFIG_DIR}" >&2
+    exit 1
+  fi
+  if [[ "${DEFAULTS_DIR_EXPLICIT}" == "true" && ! -d "${DEFAULTS_DIR}" ]]; then
+    echo "ERROR: Defaults directory not found: ${DEFAULTS_DIR}" >&2
+    exit 1
+  fi
+
+  if ! normalise_project ""; then
+    echo "ERROR: Neither ${CONFIG_DIR} nor ${DEFAULTS_DIR} exists" >&2
+    exit 1
+  fi
+fi
+
+echo ""
+if [[ "${DRY_RUN}" == "true" ]]; then
+  echo "Dry run. Would normalise ${NORMALISED_COUNT} $(file_word "${NORMALISED_COUNT}"). Left ${NO_NEWLINE_COUNT} no-newline and ${MULTI_NEWLINE_COUNT} multi-newline files alone."
+else
+  echo "Normalised ${NORMALISED_COUNT} $(file_word "${NORMALISED_COUNT}"). Left ${NO_NEWLINE_COUNT} no-newline and ${MULTI_NEWLINE_COUNT} multi-newline files alone."
+fi

@@ -38,7 +38,7 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 ## Build Subcommand
 
 - Checks `KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT` is set and valid
-- Resolves `kind` from `KaptainPM.yaml` (project root), cached `kaptainpm/final/KaptainPM.yaml`, or by running `kaptain-init`
+- Reads `kind` from `KaptainPM.yaml` (project root) — required, fails fast if missing
 - Cleans build output (always)
 - Dispatches to `src/scripts/reference/<kind>` in the build scripts repo
 
@@ -49,11 +49,12 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 - `kaptain` - main entrypoint, routes to subcommands
 
 ### Subcommand Dispatchers
-- `kaptain-decrypt` - detects type, delegates
-- `kaptain-encrypt` - detects/defaults type, delegates
-- `kaptain-build`   - resolves kind, delegates to build scripts repo
-- `kaptain-update`  - dispatches to `kaptain-update-<target>` (e.g. versions)
-- `kaptain-setup`   - dispatches to `kaptain-setup-<target>` (e.g. brew)
+- `kaptain-decrypt`   - detects type, delegates
+- `kaptain-encrypt`   - detects/defaults type, delegates
+- `kaptain-build`     - resolves kind, delegates to build scripts repo
+- `kaptain-update`    - dispatches to `kaptain-update-<target>` (e.g. versions)
+- `kaptain-setup`     - dispatches to `kaptain-setup-<target>` (e.g. brew)
+- `kaptain-normalise` - dispatches to `kaptain-normalise-<target>` (e.g. config)
 
 ### Build Scripts
 - `kaptain-build`
@@ -68,6 +69,7 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 - `kaptain-clean-secrets`
 - `kaptain-clean-images`
 - `kaptain-list-images`
+- `kaptain-normalise-config`
 - `kaptain-setup-brew`
 
 ### Encryption Scripts (callable for direct use if desired)

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Kaptain normalise router - delegates to kaptain-normalise-<target> scripts
+#
+# Usage: kaptain-normalise <target> [options]
+#        kaptain normalise config [--dir DIR]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  echo "Usage: kaptain normalise <target> [options]"
+  echo ""
+  echo "Targets:"
+  for script in "${SCRIPT_DIR}"/kaptain-normalise-*; do
+    if [[ -x "${script}" ]]; then
+      target="${script##*kaptain-normalise-}"
+      echo "  ${target}"
+    fi
+  done
+  echo ""
+  echo "Run 'kaptain normalise <target> --help' for target-specific options."
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 1
+fi
+
+target="$1"
+shift
+
+case "${target}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    NORMALISE_SCRIPT="${SCRIPT_DIR}/kaptain-normalise-${target}"
+    if [[ -x "${NORMALISE_SCRIPT}" ]]; then
+      exec "${NORMALISE_SCRIPT}" "$@"
+    else
+      echo "ERROR: Unknown normalise target: ${target}" >&2
+      echo "" >&2
+      usage >&2
+      exit 1
+    fi
+    ;;
+esac

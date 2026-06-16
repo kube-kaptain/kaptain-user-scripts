@@ -136,6 +136,28 @@ list_add() {
   fi
 }
 
+# Extract unique owner/tap pairs from a space-separated list of formulae.
+# Tap-qualified formulae have the form owner/tap/formula (e.g. tesslio/tap/tessl);
+# plain names are ignored. Recent Homebrew requires explicit trust for
+# third-party taps before install will proceed without prompting.
+taps_from_formulae() {
+  local found="" pkg owner repo tap
+  for pkg in $1; do
+    case "${pkg}" in
+      */*/*)
+        owner="${pkg%%/*}"
+        repo="${pkg#*/}"
+        repo="${repo%%/*}"
+        tap="${owner}/${repo}"
+        if ! list_contains "${tap}" "${found}"; then
+          found=$(list_add "${tap}" "${found}")
+        fi
+        ;;
+    esac
+  done
+  printf '%s' "${found}"
+}
+
 # ask_yn PROMPT DEFAULT [COPY_FRED_ANSWER]
 # DEFAULT is y or n. Returns 0 for yes, 1 for no.
 # Under --copy-fred, returns COPY_FRED_ANSWER if given, otherwise DEFAULT.
@@ -887,6 +909,16 @@ print_plan() {
     echo ""
   fi
 
+  local trust_taps t
+  trust_taps=$(taps_from_formulae "${FORMULAE_TO_INSTALL}")
+  if [[ -n "${trust_taps}" ]]; then
+    echo "Brew trust (third-party taps):"
+    for t in ${trust_taps}; do
+      echo "  brew trust ${t}"
+    done
+    echo ""
+  fi
+
   if [[ -n "${CASKS_TO_INSTALL}" ]]; then
     echo "Brew install (casks):"
     echo "  ${CASKS_TO_INSTALL}"
@@ -1001,6 +1033,11 @@ execute_plan() {
 
   if [[ -n "${FORMULAE_TO_INSTALL}" ]]; then
     echo ""
+    local trust_taps t
+    trust_taps=$(taps_from_formulae "${FORMULAE_TO_INSTALL}")
+    for t in ${trust_taps}; do
+      run_step brew trust "${t}"
+    done
     # shellcheck disable=SC2086
     run_step brew install ${FORMULAE_TO_INSTALL}
   fi

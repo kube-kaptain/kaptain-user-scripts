@@ -41,24 +41,26 @@ Currently CLI, routing, utility and encryption scripts useful to kaptain users.
 
 ### Routers
 
-| Script            | Description                                        |
-|-------------------|----------------------------------------------------|
-| `kaptain-list`    | Route to list sub-commands (config, secrets, etc.) |
-| `kaptain-clean`   | Route to clean sub-commands (secrets, etc.)        |
-| `kaptain-encrypt` | Auto-detect encryption type and encrypt            |
-| `kaptain-decrypt` | Auto-detect encryption type and decrypt            |
-| `kaptain-setup`   | Route to setup sub-commands (brew, etc.)           |
+| Script              | Description                                        |
+|---------------------|----------------------------------------------------|
+| `kaptain-list`      | Route to list sub-commands (config, secrets, etc.) |
+| `kaptain-clean`     | Route to clean sub-commands (secrets, etc.)        |
+| `kaptain-normalise` | Route to normalise sub-commands (config, etc.)     |
+| `kaptain-encrypt`   | Auto-detect encryption type and encrypt            |
+| `kaptain-decrypt`   | Auto-detect encryption type and decrypt            |
+| `kaptain-setup`     | Route to setup sub-commands (brew, etc.)           |
 
 ### Utility
 
-| Script                   | Description                                      |
-|--------------------------|--------------------------------------------------|
-| `kaptain-list-config`    | List config and defaults files and their values  |
-| `kaptain-list-secrets`   | List secret files and their encryption status    |
-| `kaptain-list-manifests` | List Kubernetes manifest files and validate them |
-| `kaptain-clean-secrets`  | Remove decrypted secret files (.raw, .txt)       |
-| `kaptain-clean-images`   | Remove PRERELEASE-tagged container images        |
-| `kaptain-list-images`    | List container images by scope and tag class     |
+| Script                     | Description                                           |
+|----------------------------|-------------------------------------------------------|
+| `kaptain-list-config`      | List config and defaults files and their values       |
+| `kaptain-list-secrets`     | List secret files and their encryption status         |
+| `kaptain-list-manifests`   | List Kubernetes manifest files and validate them      |
+| `kaptain-clean-secrets`    | Remove decrypted secret files (.raw, .txt)            |
+| `kaptain-clean-images`     | Remove PRERELEASE-tagged container images             |
+| `kaptain-list-images`      | List container images by scope and tag class          |
+| `kaptain-normalise-config` | Strip trailing newlines from single-line config files |
 
 ### Encryption
 
@@ -159,8 +161,12 @@ Brew instructions are repeated below from [the above repo docs](https://github.c
 
 ```bash
 brew tap kube-kaptain/kaptain
+brew trust kube-kaptain/kaptain
 brew install kaptain
 ```
+
+Recent Homebrew versions require `brew trust` for third-party taps before installs
+will proceed without prompting.
 
 ## Future Packaging
 
