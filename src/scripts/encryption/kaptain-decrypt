@@ -143,4 +143,4 @@ if [[ ! -x "${DECRYPT_SCRIPT}" ]]; then
   exit 1
 fi
 
-exec "${DECRYPT_SCRIPT}" "${PASSTHROUGH[@]}"
+exec "${DECRYPT_SCRIPT}" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}

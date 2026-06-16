@@ -151,4 +151,4 @@ if [[ ! -x "${ENCRYPT_SCRIPT}" ]]; then
   exit 1
 fi
 
-exec "${ENCRYPT_SCRIPT}" "${PASSTHROUGH[@]}"
+exec "${ENCRYPT_SCRIPT}" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
