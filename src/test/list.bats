@@ -272,6 +272,21 @@ create_file_with_time() {
   [[ "$output" == *"1 no-newline, 1 one-newline, 2 multiline"* ]]
 }
 
+@test "list-config: one-newline-mid-file classified as Multiline, not One newline" {
+  # A two-line file with no trailing newline has newline_count == 1 but the
+  # newline is mid-file, so it is actually a multi-line value, not a strippable
+  # trailing-newline file. Stripping it would lose data.
+  mkdir -p "${TEST_LIST}/config"
+  printf 'line1\nline2' > "${TEST_LIST}/config/mid-nl"
+
+  run "${TEST_BIN}/kaptain-list-config" --dir "${TEST_LIST}/config"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Multiline (cat <file> to inspect):"* ]]
+  [[ "$output" == *"mid-nl:"*"1 lines"* ]]
+  [[ "$output" != *"One newline (consider stripping):"* ]]
+  [[ "$output" == *"1 multiline"* ]]
+}
+
 @test "list-config: works with custom dir" {
   mkdir -p "${TEST_LIST}/my-config"
   echo "custom-value" > "${TEST_LIST}/my-config/key"
