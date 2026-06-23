@@ -10,7 +10,7 @@ decrypting, inspecting status with list, and cleaning up.
 - kaptain CLI installed (see [README.md](README.md#installation))
 - A project repo with a `src/secrets` directory (or use `--dir` to point elsewhere)
 - Gitignore patterns for clear text `.raw` and `.txt` secret files are required and enforced.
-  Add `**/*secrets/*.raw` and `**/*secrets/*.txt` to your global or repo gitignore.
+  Add `**/*secrets/**/*.raw` and `**/*secrets/**/*.txt` to your global or repo gitignore.
   Encrypt and decrypt will refuse to run without these in place and will advise on
   how to configure based on what it finds you have in place. Run the following to
   check before using the tools: `kaptain encryption-check-ignores`. It will tell
