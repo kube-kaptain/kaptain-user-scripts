@@ -19,8 +19,8 @@ setup() {
   # Add gitignore patterns required by kaptain-encryption-check-ignores
   # This ensures router tests pass in CI where global gitignore isn't configured
   cat > "${OUTPUT_SUB_PATH}/test/encryption-functional/.gitignore" << 'EOF'
-**/*secrets/*.raw
-**/*secrets/*.txt
+**/*secrets/**/*.raw
+**/*secrets/**/*.txt
 EOF
 }
 

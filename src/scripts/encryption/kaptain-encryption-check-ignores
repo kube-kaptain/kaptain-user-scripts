@@ -57,14 +57,14 @@ pattern_in_file() {
 }
 
 # Patterns we need to find (escaped for grep -E)
-# **/*secrets/*.raw matches any dir ending in "secrets" anywhere
+# **/*secrets/**/*.raw matches any dir ending in "secrets" anywhere, at any depth below
 # Anchored to start/end of line to avoid matching comments
 RAW_PATTERNS=(
-  '^\*\*/\*secrets/\*\.raw$'
+  '^\*\*/\*secrets/\*\*/\*\.raw$'
 )
 
 TXT_PATTERNS=(
-  '^\*\*/\*secrets/\*\.txt$'
+  '^\*\*/\*secrets/\*\*/\*\.txt$'
 )
 
 FOUND_RAW=false
@@ -161,8 +161,8 @@ if [[ "${FAILED}" == "true" ]]; then
   echo ""
   echo "      You are required to ignore the following patterns somewhere/somehow: "
   echo ""
-  echo "        - '**/*secrets/*.raw' (pre-encryption)"
-  echo "        - '**/*secrets/*.txt' (post-decryption)"
+  echo "        - '**/*secrets/**/*.raw' (pre-encryption)"
+  echo "        - '**/*secrets/**/*.txt' (post-decryption)"
   echo ""
   echo "===================== Advice on correct local system setup ====================="
   echo ""
@@ -175,20 +175,20 @@ if [[ "${FAILED}" == "true" ]]; then
     echo ""
     echo "  # Add patterns to ~/.gitignore_global:"
     echo "  echo '# Ignore clear text secrets:' >> ~/.gitignore_global"
-    echo "  echo '**/*secrets/*.raw' >> ~/.gitignore_global"
-    echo "  echo '**/*secrets/*.txt' >> ~/.gitignore_global"
+    echo "  echo '**/*secrets/**/*.raw' >> ~/.gitignore_global"
+    echo "  echo '**/*secrets/**/*.txt' >> ~/.gitignore_global"
   else
     echo "  # Add patterns to your existing global ignore:"
     echo "  echo '# Ignore clear text secrets:' >> ${GLOBAL_IGNORE}"
-    echo "  echo '**/*secrets/*.raw' >> ${GLOBAL_IGNORE}"
-    echo "  echo '**/*secrets/*.txt' >> ${GLOBAL_IGNORE}"
+    echo "  echo '**/*secrets/**/*.raw' >> ${GLOBAL_IGNORE}"
+    echo "  echo '**/*secrets/**/*.txt' >> ${GLOBAL_IGNORE}"
   fi
   echo ""
   echo "Option 2: Repository .gitignore (NOT recommended)"
   echo ""
   echo "  echo '# Ignore clear text secrets:' >> .gitignore"
-  echo "  echo '**/*secrets/*.raw' >> .gitignore"
-  echo "  echo '**/*secrets/*.txt' >> .gitignore"
+  echo "  echo '**/*secrets/**/*.raw' >> .gitignore"
+  echo "  echo '**/*secrets/**/*.txt' >> .gitignore"
   echo ""
   echo "================================================================================"
   echo ""

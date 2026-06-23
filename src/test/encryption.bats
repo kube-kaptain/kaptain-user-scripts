@@ -239,8 +239,8 @@ teardown() {
 
   # Add proper gitignore patterns
   cat > "${TEST_DIR}/.gitignore" << 'EOF'
-**/*secrets/*.raw
-**/*secrets/*.txt
+**/*secrets/**/*.raw
+**/*secrets/**/*.txt
 EOF
 
   # Run from the fake repo root with absolute path - should complete without hanging
