@@ -566,11 +566,11 @@ compute_max_loc_width() {
         last_idx=$((count - 1))
         digits=${#last_idx}
         len=$(( ${#section} + 2 + digits ))
-        (( len > MAX_LOC_WIDTH )) && MAX_LOC_WIDTH=$len
+        if (( len > MAX_LOC_WIDTH )); then MAX_LOC_WIDTH=$len; fi
       done
     fi
     if [[ "${UPDATE_API_VERSION}" == "true" ]]; then
-      (( 10 > MAX_LOC_WIDTH )) && MAX_LOC_WIDTH=10
+      if (( 10 > MAX_LOC_WIDTH )); then MAX_LOC_WIDTH=10; fi
     fi
   done
 }
@@ -810,8 +810,8 @@ render_rows_slice() {
     row="${ROWS[$i]}"
     IFS='|' read -r s _ l _ _ <<< "${row}"
     local_short="${l#spec.}"
-    (( ${#local_short} > w_loc ))  && w_loc="${#local_short}"
-    (( ${#s} > w_status ))         && w_status="${#s}"
+    if (( ${#local_short} > w_loc )); then w_loc="${#local_short}"; fi
+    if (( ${#s} > w_status )); then w_status="${#s}"; fi
   done
 
   local fmt
