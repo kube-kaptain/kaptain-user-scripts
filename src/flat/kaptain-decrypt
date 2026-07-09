@@ -82,7 +82,7 @@ done
 is_supported_type() {
   local check_type="$1"
   local t
-  for t in "${SUPPORTED_TYPES[@]}"; do
+  for t in ${SUPPORTED_TYPES[@]+"${SUPPORTED_TYPES[@]}"}; do
     if [[ "${t}" == "${check_type}" ]]; then
       return 0
     fi
@@ -95,7 +95,7 @@ detect_type() {
   local found_type=""
   local found_count=0
 
-  for suffix in "${SUPPORTED_TYPES[@]}"; do
+  for suffix in ${SUPPORTED_TYPES[@]+"${SUPPORTED_TYPES[@]}"}; do
     # Check for files with this extension
     local ext=".${suffix}"
     local count

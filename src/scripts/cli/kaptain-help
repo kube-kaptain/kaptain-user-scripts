@@ -84,7 +84,7 @@ done
 
 # Find longest command name
 max_len=0
-for short in "${commands[@]}"; do
+for short in ${commands[@]+"${commands[@]}"}; do
   if [[ ${#short} -gt ${max_len} ]]; then
     max_len=${#short}
   fi
@@ -92,7 +92,7 @@ done
 pad=$((max_len + 2))
 
 # Print with aligned descriptions
-for short in "${commands[@]}"; do
+for short in ${commands[@]+"${commands[@]}"}; do
   desc=$(describe_command "${short}")
   if [[ -n "${desc}" ]]; then
     printf "  %-${pad}s %s\n" "${short}" "${desc}"

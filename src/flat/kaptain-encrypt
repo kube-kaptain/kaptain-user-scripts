@@ -92,7 +92,7 @@ done
 is_supported_type() {
   local check_type="$1"
   local t
-  for t in "${SUPPORTED_TYPES[@]}"; do
+  for t in ${SUPPORTED_TYPES[@]+"${SUPPORTED_TYPES[@]}"}; do
     if [[ "${t}" == "${check_type}" ]]; then
       return 0
     fi
@@ -104,7 +104,7 @@ is_supported_type() {
 detect_existing_type() {
   local found_type=""
 
-  for suffix in "${SUPPORTED_TYPES[@]}"; do
+  for suffix in ${SUPPORTED_TYPES[@]+"${SUPPORTED_TYPES[@]}"}; do
     local ext=".${suffix}"
     local count
     count=$(find "${DIR}" -name "*${ext}" -type f 2>/dev/null | wc -l | tr -d ' ')
