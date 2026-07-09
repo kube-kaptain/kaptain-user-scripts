@@ -725,6 +725,35 @@ YAML
   [[ "$output" == *'layer-f:5.6'* ]]
 }
 
+# Applying a change must not reflow the user's file: blank lines and comments
+# are preserved (a yq round-trip write used to strip all blank lines).
+@test "kaptain-update-versions: applying a change preserves blank lines and comments" {
+  make_fake_build_root
+  local project="${BATS_TEST_TMPDIR}/proj-format"
+  mkdir -p "${project}"
+  cat > "${project}/KaptainPM.yaml" <<'YAML'
+apiVersion: kaptain.org/1.18
+kind: docker-build-dockerfile
+
+# formatting sentinel comment
+spec:
+  layers:
+
+    - layer-foo:[1.2.0,2.0.0)
+YAML
+  fixture "layer-foo:[1.2.0,2.0.0)" "ghcr.io/x/layer-foo:1.7.0"
+
+  cd "${project}"
+  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
+    run "${TEST_BUILD}/kaptain-update-versions"
+  [ "$status" -eq 0 ]
+  # The change was written...
+  grep -q 'layer-foo:\[1.7.0,2.0.0)' "${project}/KaptainPM.yaml"
+  # ...without collapsing the two blank lines or dropping the comment.
+  [ "$(grep -c '^$' "${project}/KaptainPM.yaml")" -eq 2 ]
+  grep -q '# formatting sentinel comment' "${project}/KaptainPM.yaml"
+}
+
 # Regression: --update-all over a templates/contents section (wider location
 # column) once tripped set -e in compute_max_loc_width and aborted silently.
 @test "kaptain-update-versions: --update-all with a templates section does not silently abort" {
