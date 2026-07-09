@@ -566,11 +566,11 @@ compute_max_loc_width() {
         last_idx=$((count - 1))
         digits=${#last_idx}
         len=$(( ${#section} + 2 + digits ))
-        (( len > MAX_LOC_WIDTH )) && MAX_LOC_WIDTH=$len
+        if (( len > MAX_LOC_WIDTH )); then MAX_LOC_WIDTH=$len; fi
       done
     fi
     if [[ "${UPDATE_API_VERSION}" == "true" ]]; then
-      (( 10 > MAX_LOC_WIDTH )) && MAX_LOC_WIDTH=10
+      if (( 10 > MAX_LOC_WIDTH )); then MAX_LOC_WIDTH=10; fi
     fi
   done
 }
@@ -810,8 +810,8 @@ render_rows_slice() {
     row="${ROWS[$i]}"
     IFS='|' read -r s _ l _ _ <<< "${row}"
     local_short="${l#spec.}"
-    (( ${#local_short} > w_loc ))  && w_loc="${#local_short}"
-    (( ${#s} > w_status ))         && w_status="${#s}"
+    if (( ${#local_short} > w_loc )); then w_loc="${#local_short}"; fi
+    if (( ${#s} > w_status )); then w_status="${#s}"; fi
   done
 
   local fmt
@@ -824,6 +824,42 @@ render_rows_slice() {
     # shellcheck disable=SC2059
     printf "${fmt}" "${l#spec.}" "${s}" "${d}"
   done
+}
+
+# yq's in-place write reserialises the whole document and drops blank lines
+# (YAML has no data model for them; comments are kept). Reinstate them from the
+# pre-write snapshot: yq preserves the count and order of non-blank lines, so we
+# walk the snapshot's blank/non-blank pattern and splice yq's updated non-blank
+# lines back into it. If the non-blank counts diverge (yq reflowed a scalar) we
+# leave yq's output untouched rather than risk mangling the file.
+restore_blank_lines() {
+  local snapshot="$1" rewritten="$2"
+  local tmp
+  tmp="$(mktemp)"
+  if awk -v snap="${snapshot}" '
+    { R[NR] = $0 }
+    END {
+      rn = 0
+      for (k = 1; k <= NR; k++)
+        if (R[k] !~ /^[[:space:]]*$/) NB[++rn] = R[k]
+      on = 0; ol = 0
+      while ((getline line < snap) > 0) {
+        OL[++ol] = line
+        if (line !~ /^[[:space:]]*$/) on++
+      }
+      close(snap)
+      if (on != rn) exit 3
+      j = 0
+      for (k = 1; k <= ol; k++) {
+        if (OL[k] ~ /^[[:space:]]*$/) print ""
+        else print NB[++j]
+      }
+    }
+  ' "${rewritten}" > "${tmp}"; then
+    mv "${tmp}" "${rewritten}"
+  else
+    rm -f "${tmp}"
+  fi
 }
 
 compute_max_loc_width
@@ -860,11 +896,15 @@ if [[ "${DRY_RUN}" != "true" && ${CHANGES_COUNT} -gt 0 ]]; then
   # `set -u` on Bash 3.2 is unsafe.
   files_seen=""
   files_count=0
+  # Snapshot each file before yq touches it so we can restore its blank-line
+  # layout afterwards (yq drops blank lines on write).
+  snap_dir="$(mktemp -d)"
   for row in "${CHANGES[@]}"; do
     IFS='|' read -r f l _ a <<< "${row}"
     if [[ "|${files_seen}|" != *"|${f}|"* ]]; then
       files_seen="${files_seen:+${files_seen}|}${f}"
       files_count=$((files_count + 1))
+      cp "${f}" "${snap_dir}/snap_${files_count}"
     fi
     if [[ "${l}" == "apiVersion" ]]; then
       yq eval -i ".apiVersion = \"${a}\"" "${f}"
@@ -873,6 +913,19 @@ if [[ "${DRY_RUN}" != "true" && ${CHANGES_COUNT} -gt 0 ]]; then
       yq eval -i ".${l} = \"${a}\"" "${f}"
     fi
   done
+  # Reinstate the blank lines yq dropped, once per unique file (same first-seen
+  # order used when snapshotting, so snap_N lines up with the Nth unique file).
+  restored_seen=""
+  restore_idx=0
+  for row in "${CHANGES[@]}"; do
+    IFS='|' read -r f _ _ _ <<< "${row}"
+    if [[ "|${restored_seen}|" != *"|${f}|"* ]]; then
+      restored_seen="${restored_seen:+${restored_seen}|}${f}"
+      restore_idx=$((restore_idx + 1))
+      restore_blank_lines "${snap_dir}/snap_${restore_idx}" "${f}"
+    fi
+  done
+  rm -rf "${snap_dir}"
   files_list="${files_seen//|/ }"
   echo "${CHANGES_COUNT} change(s) applied across ${files_count} file(s)."
   echo "Review with: git diff ${files_list}"

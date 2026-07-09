@@ -173,7 +173,7 @@ parse_extra_prefixes() {
   local parts=( ${EXTRA_PREFIXES_RAW} )
   IFS="${saved_ifs}"
   local entry
-  for entry in "${parts[@]}"; do
+  for entry in ${parts[@]+"${parts[@]}"}; do
     if ! validate_prefix_entry "${entry}"; then
       echo "ERROR: invalid --extra-prefixes entry '${entry}': ${PREFIX_VALIDATION_ERROR}" >&2
       exit 1
