@@ -163,6 +163,18 @@ write_manifests() {
   [[ "$output" == *"mutually exclusive"* ]]
 }
 
+# Regression: `--extra-prefixes=` with an empty value must reach the clean
+# "no entries" error. On bash 3.2 the empty `parts` array in parse_extra_prefixes
+# tripped `set -u` ("parts[@]: unbound variable") at the for-loop, before that
+# guard could run. Both crash and clean error exit 1, so assert on the message.
+@test "clean-images: empty --extra-prefixes reports no entries, not an unbound-variable crash" {
+  make_fake_engine podman
+  run env PATH="${FAKE_BIN_ABS}:/usr/bin:/bin" "${TEST_BIN_ABS}/kaptain-clean-images" --prefix=ecr/team --extra-prefixes=
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--extra-prefixes given with no entries"* ]]
+  [[ "$output" != *"unbound variable"* ]]
+}
+
 @test "clean-images: --all and --all-same-reg-ns mutually exclusive" {
   make_fake_engine podman
   run env PATH="${FAKE_BIN_ABS}:/usr/bin:/bin" "${TEST_BIN_ABS}/kaptain-clean-images" --all --all-same-reg-ns
