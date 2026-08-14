@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Run the main image produced by the most recent kaptain build.
+# Reads the image URI and the container command from the build output
+# files, publishes any exposed ports from 4242 upward, and runs it.
+# Run from project root.
+#
+# Usage: kaptain-run [-h|--help]
+set -euo pipefail
+
+OUTPUT_DIR="${KAPTAIN_USER_SCRIPTS_OUTPUT_SUB_PATH:-kaptain-out}"
+
+# First published host port. Above the privileged and common service
+# ranges, so it is unlikely to collide with anything already listening.
+HOST_PORT_BASE=4242
+
+usage() {
+  echo "Usage: kaptain run [-h|--help]"
+  echo ""
+  echo "Run the main image from the most recent kaptain build."
+  echo ""
+  echo "Reads the image URI and container command from the build output in"
+  echo "${OUTPUT_DIR}/reference-script-output/, then runs the image with --rm."
+  echo "Each port the image exposes is published, from ${HOST_PORT_BASE} upward."
+  echo ""
+  echo "What the container runs is decided by the image's own CMD or ENTRYPOINT."
+  echo "Runs with --init so Ctrl-C stops the container, and interactively when"
+  echo "stdin and stdout are both terminals."
+  echo ""
+  echo "Prints a link per published TCP port, for localhost and for each address"
+  echo "this machine can be reached on, so the app can be opened from Windows"
+  echo "when this runs under WSL2, or from another machine on the network."
+  echo ""
+  echo "Run 'kaptain build' first, or 'kaptain build --run' to do both."
+  echo ""
+  echo "Options:"
+  echo "  -h, --help    Show this help"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+STEP_OUTPUT_DIR="${OUTPUT_DIR}/reference-script-output"
+
+# Step 1: Check there is a build to run
+if [[ ! -d "${STEP_OUTPUT_DIR}" ]]; then
+  echo "ERROR: No build output found: ${STEP_OUTPUT_DIR}" >&2
+  echo "" >&2
+  echo "Run 'kaptain build' first, or 'kaptain build --run' to do both." >&2
+  exit 1
+fi
+
+# Read the last NAME=VALUE match for a key from a step output file.
+# output_var appends, so a key can appear more than once; the last write
+# wins. Never source these files: a value is data, not shell to execute.
+read_output_var() {
+  local file="$1"
+  local name="$2"
+  local line
+
+  [[ -f "${file}" ]] || return 0
+
+  line=$(grep "^${name}=" "${file}" | tail -1) || return 0
+  printf '%s' "${line#*=}"
+}
+
+# Step 2: Read the container command the build used
+# Taken from the build rather than detected again, so podman versus docker
+# cannot disagree between building an image and running it.
+IMAGE_COMMAND=$(read_output_var "${STEP_OUTPUT_DIR}/validate-tooling" "IMAGE_BUILD_COMMAND")
+
+if [[ -z "${IMAGE_COMMAND}" ]]; then
+  echo "ERROR: Build output is incomplete: no IMAGE_BUILD_COMMAND in" >&2
+  echo "       ${STEP_OUTPUT_DIR}/validate-tooling" >&2
+  echo "" >&2
+  echo "Run 'kaptain build' again." >&2
+  exit 1
+fi
+
+# Step 3: Read the main image URI
+IMAGE_URI=$(read_output_var "${STEP_OUTPUT_DIR}/docker-build-dockerfile" "DOCKER_TARGET_IMAGE_FULL_URI")
+
+if [[ -z "${IMAGE_URI}" ]]; then
+  KIND=""
+  if [[ -f "KaptainPM.yaml" ]] && command -v yq &> /dev/null; then
+    KIND=$(yq -r '.kind // ""' "KaptainPM.yaml")
+  fi
+  echo "ERROR: Project kind '${KIND:-unknown}' does not produce a runnable image." >&2
+  echo "" >&2
+  echo "Only project kinds that build an image from a Dockerfile can be run." >&2
+  exit 1
+fi
+
+# Step 4: Read the project name, for display only
+# Falls back to the directory name, since kaptain build runs from project root
+PROJECT_NAME=$(read_output_var "${STEP_OUTPUT_DIR}/versions-and-naming" "PROJECT_NAME")
+
+if [[ -z "${PROJECT_NAME}" ]]; then
+  PROJECT_NAME="$(basename "${PWD}")"
+fi
+
+# Step 5: Resolve the reference to run
+# Prefer the base URI, which is what actually ships: under podman a
+# multi-platform build leaves it as a local manifest list, and run resolves
+# that to the host architecture. Only docker needs the fallback, because it
+# cannot create a local manifest list, so a multi-platform build leaves
+# nothing but the per-architecture tags. Testing the base URI locally first
+# is what stops docker reaching for the registry and running a stale remote
+# image carrying the same tag.
+case "$(uname -m)" in
+  x86_64|amd64)
+    HOST_ARCH="amd64"
+    ;;
+  arm64|aarch64)
+    HOST_ARCH="arm64"
+    ;;
+  *)
+    HOST_ARCH=""
+    ;;
+esac
+
+# image inspect works on both engines; image exists is podman only.
+image_exists() {
+  "${IMAGE_COMMAND}" image inspect "$1" > /dev/null 2>&1
+}
+
+if image_exists "${IMAGE_URI}"; then
+  IMAGE_REF="${IMAGE_URI}"
+elif [[ -n "${HOST_ARCH}" ]] && image_exists "${IMAGE_URI}-linux-${HOST_ARCH}"; then
+  IMAGE_REF="${IMAGE_URI}-linux-${HOST_ARCH}"
+else
+  echo "ERROR: No local image found for: ${IMAGE_URI}" >&2
+  echo "" >&2
+  echo "Tags present locally for this repository:" >&2
+  "${IMAGE_COMMAND}" image list --format '{{.Repository}}:{{.Tag}}' 2> /dev/null \
+    | grep -F "${IMAGE_URI%%:*}" >&2 || echo "  (none)" >&2
+  exit 1
+fi
+
+# Step 6: Map every exposed port, from HOST_PORT_BASE upward
+EXPOSED_PORTS=$("${IMAGE_COMMAND}" image inspect --format '{{json .Config.ExposedPorts}}' "${IMAGE_REF}" 2> /dev/null || true)
+
+PORT_ARGS=()
+
+# 'host container' pairs worth linking to. TCP only: a browser cannot open
+# a UDP port, though it is still published.
+LINK_PORTS=()
+
+if [[ -n "${EXPOSED_PORTS}" && "${EXPOSED_PORTS}" != "null" ]]; then
+  # {"8080/tcp":{},"80/tcp":{}} becomes one 'port/proto' per line, lowest first
+  PORT_SPECS=$(printf '%s' "${EXPOSED_PORTS}" \
+    | tr ',' '\n' \
+    | sed -n 's|.*"\([0-9][0-9]*/[a-z][a-z]*\)".*|\1|p' \
+    | sort -t/ -k1,1n)
+
+  HOST_PORT="${HOST_PORT_BASE}"
+
+  # Here-string, not a pipe: a pipe would run the loop in a subshell and
+  # lose PORT_ARGS and HOST_PORT on the way out.
+  while IFS= read -r PORT_SPEC; do
+    [[ -n "${PORT_SPEC}" ]] || continue
+
+    CONTAINER_PORT="${PORT_SPEC%%/*}"
+    PROTOCOL="${PORT_SPEC##*/}"
+
+    if [[ "${PROTOCOL}" == "tcp" ]]; then
+      PORT_ARGS+=(-p "${HOST_PORT}:${CONTAINER_PORT}")
+      LINK_PORTS+=("${HOST_PORT} ${CONTAINER_PORT}")
+    else
+      PORT_ARGS+=(-p "${HOST_PORT}:${CONTAINER_PORT}/${PROTOCOL}")
+    fi
+
+    HOST_PORT=$((HOST_PORT + 1))
+  done <<< "${PORT_SPECS}"
+fi
+
+# Step 7: Find the addresses this machine can be reached on
+#
+# Best effort throughout. A missing command or an unparsable format means
+# fewer links, never a failure: the container still runs.
+#
+# Emits 'interface address' pairs. iproute2 first, since Linux and WSL2 may
+# have no ifconfig at all; 'scope global' already excludes loopback and
+# link-local there. ifconfig covers macOS, which has no ip.
+list_interface_addresses() {
+  if command -v ip &> /dev/null; then
+    ip -4 -o addr show scope global 2> /dev/null \
+      | awk '{ address = $4; sub(/\/.*/, "", address); print $2, address }'
+    return 0
+  fi
+
+  if command -v ifconfig &> /dev/null; then
+    ifconfig 2> /dev/null \
+      | awk '/^[a-zA-Z0-9_]+:/ { interface = $1; sub(/:$/, "", interface) }
+             /^[ \t]*inet / { print interface, $2 }'
+    return 0
+  fi
+}
+
+HOST_ADDRESSES=()
+
+while read -r INTERFACE ADDRESS; do
+  [[ -n "${ADDRESS:-}" ]] || continue
+
+  # Loopback is already listed separately, link-local reaches nothing
+  case "${ADDRESS}" in
+    127.*|169.254.*)
+      continue
+      ;;
+  esac
+
+  # Container and VM bridges carry real addresses on Linux, reachable from
+  # this host but from nowhere else. Filtering by name, never by range: on
+  # WSL2 the address worth having is a 172.x one on eth0.
+  case "${INTERFACE}" in
+    docker0|podman*|cni-podman*|br-*|virbr*|veth*)
+      continue
+      ;;
+  esac
+
+  HOST_ADDRESSES+=("${ADDRESS}")
+done <<< "$(list_interface_addresses || true)"
+
+# Step 8: Run it
+#
+# --init puts catatonit (podman) or docker-init (docker) at PID 1, which
+# installs signal handlers and forwards them on. Without it the image's own
+# command is PID 1, and the kernel applies no default signal actions to PID 1,
+# so a process with no SIGINT handler discards Ctrl-C entirely and the
+# container can only be stopped from another terminal.
+RUN_ARGS=(--rm --init)
+
+# Interactive only when both ends are a terminal. Keeps 'kaptain run > file'
+# and CI output free of TTY escapes, and avoids allocating a TTY with no
+# stdin attached.
+if [[ -t 0 && -t 1 ]]; then
+  RUN_ARGS+=(-it)
+fi
+
+if [[ ${#PORT_ARGS[@]} -gt 0 ]]; then
+  RUN_ARGS+=("${PORT_ARGS[@]}")
+fi
+
+# Centred banner, matching the format the reference build scripts print
+# before each step, so a build that runs on into a run reads as one sequence.
+print_banner() {
+  local title="$1"
+  local inner_width=74
+  local text_len=${#title}
+  local pad_left=$(( (inner_width - text_len) / 2 ))
+  local pad_right=$(( inner_width - text_len - pad_left ))
+
+  echo ""
+  echo "################################################################################"
+  printf "###%74s###\n" ""
+  printf "###%*s%s%*s###\n" "${pad_left}" "" "${title}" "${pad_right}" ""
+  printf "###%74s###\n" ""
+  echo "################################################################################"
+  echo ""
+}
+
+print_banner "Kaptain CLI Run Command"
+
+echo "Running latest main image for ${PROJECT_NAME}:"
+echo ""
+echo "${IMAGE_COMMAND} run ${RUN_ARGS[*]} ${IMAGE_REF}"
+
+if [[ ${#LINK_PORTS[@]} -gt 0 ]]; then
+  echo ""
+  echo "To view your app or site, use the below URLs:"
+  echo ""
+  echo "Local:"
+  for LINK_PORT in "${LINK_PORTS[@]}"; do
+    echo "  http://localhost:${LINK_PORT%% *}  (container ${LINK_PORT##* })"
+  done
+
+  if [[ ${#HOST_ADDRESSES[@]} -gt 0 ]]; then
+    echo ""
+    echo "Network (from Windows with this in WSL2, or another machine):"
+    for HOST_ADDRESS in "${HOST_ADDRESSES[@]}"; do
+      for LINK_PORT in "${LINK_PORTS[@]}"; do
+        echo "  http://${HOST_ADDRESS}:${LINK_PORT%% *}  (container ${LINK_PORT##* })"
+      done
+    done
+  else
+    echo ""
+    echo "No network addresses found, so only localhost is listed."
+  fi
+fi
+
+echo ""
+echo "Press Ctrl-C to stop."
+echo ""
+
+exec "${IMAGE_COMMAND}" run "${RUN_ARGS[@]}" "${IMAGE_REF}"
