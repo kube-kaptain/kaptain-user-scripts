@@ -39,6 +39,7 @@ describe_command() {
     rotate-key-for-secrets) echo "Rotate encryption key for secrets" ;;
     normalise)              echo "Normalise config files (strip stray trailing newlines)" ;;
     build)                  echo "Build a kaptain project locally" ;;
+    run)                    echo "Run the image from the most recent build" ;;
     clean-project)          echo "Clean build output directories" ;;
     clean-images)           echo "Remove PRERELEASE-tagged container images" ;;
     list-images)            echo "List container images filtered by scope and tag class" ;;
@@ -203,10 +204,21 @@ Encryption Commands:
     --output       Where to write generated key (default: target/keygen/new.key)
 
 Build Commands:
-  kaptain build
+  kaptain build [--run]
     Build a kaptain project locally.
     Reads KaptainPM.yaml, resolves kind, and delegates to reference build script.
     Requires KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set.
+    --run     Run the built image afterwards, as 'kaptain run' does
+
+  kaptain run
+    Run the main image from the most recent kaptain build.
+    Reads the image URI and container command from the build output, then runs
+    the image with --rm. Each port the image exposes is published, from 4242
+    upward. The image's own CMD or ENTRYPOINT decides what runs.
+    Runs with --init so Ctrl-C stops the container, and interactively when
+    stdin and stdout are both terminals. Prints a link per published TCP port,
+    for localhost and for each address this machine can be reached on, so the
+    app can be opened from Windows under WSL2 or from another machine.
 
   kaptain clean project [--dir DIR]
     Remove build output directories (kaptain-out/ and kaptainpm/).

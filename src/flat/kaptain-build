@@ -7,13 +7,15 @@
 # then delegates to the appropriate reference build script.
 # Run from project root.
 #
-# Usage: kaptain-build [-h|--help]
+# Usage: kaptain-build [--run] [-h|--help]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+RUN_AFTER_BUILD="false"
+
 usage() {
-  echo "Usage: kaptain build [-h|--help]"
+  echo "Usage: kaptain build [--run] [-h|--help]"
   echo ""
   echo "Build a kaptain project locally."
   echo ""
@@ -23,6 +25,7 @@ usage() {
   echo "Requires KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set."
   echo ""
   echo "Options:"
+  echo "  --run         Run the built image afterwards, as 'kaptain run' does"
   echo "  -h, --help    Show this help"
 }
 
@@ -31,6 +34,10 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       usage
       exit 0
+      ;;
+    --run)
+      RUN_AFTER_BUILD="true"
+      shift
       ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
@@ -109,6 +116,16 @@ REF_SCRIPT="${BUILD_ROOT}/src/scripts/reference/${KIND}"
 if [[ ! -x "${REF_SCRIPT}" ]]; then
   echo "ERROR: Reference build script not found or not executable for kind '${KIND}': ${REF_SCRIPT}" >&2
   exit 1
+fi
+
+# Step 8: Run the built image, if asked
+# Two separate invocations, one after the other. Nothing is passed between
+# them: kaptain-run reads the same build output files on disk that
+# 'kaptain build && kaptain run' would. Under set -e a failed build never
+# reaches the run.
+if [[ "${RUN_AFTER_BUILD}" == "true" ]]; then
+  "${REF_SCRIPT}"
+  exec "${SCRIPT_DIR}/kaptain-run"
 fi
 
 exec "${REF_SCRIPT}"

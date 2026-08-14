@@ -13,6 +13,7 @@ Or: keep current name, consistent with build and deploy scripts - three categori
 kaptain decrypt    # auto-detect type from existing encrypted files, decrypt, use `src/secrets` by default
 kaptain encrypt    # encrypt (auto-detect or default, see logic below)
 kaptain build      # reads KaptainPM.yaml, dispatches by kind field
+kaptain run        # runs the main image from the most recent build
 ```
 
 ## Encrypt Type Selection Logic
@@ -41,6 +42,17 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 - Reads `kind` from `KaptainPM.yaml` (project root) — required, fails fast if missing
 - Cleans build output (always)
 - Dispatches to `src/scripts/reference/<kind>` in the build scripts repo
+- `--run` runs `kaptain-run` after the build, as a separate invocation
+
+
+## Run Subcommand
+
+- Reads `IMAGE_BUILD_COMMAND` and `DOCKER_TARGET_IMAGE_FULL_URI` from the build
+  output under `kaptain-out/reference-script-output/`
+- Prefers the base tag, which under podman is the local multi-arch manifest list;
+  falls back to the architecture-suffixed tag, which is all docker leaves behind
+- Publishes each exposed port from 4242 upward, preserving the protocol
+- Runs with `--rm`; the image's own `CMD` or `ENTRYPOINT` decides what runs
 
 
 ## Script Structure
@@ -58,6 +70,7 @@ kaptain build      # reads KaptainPM.yaml, dispatches by kind field
 
 ### Build Scripts
 - `kaptain-build`
+- `kaptain-run`
 - `kaptain-clean-project`
 - `kaptain-update`
 - `kaptain-update-versions`
