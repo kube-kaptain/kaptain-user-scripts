@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Kaptain contributors (Fred Cooke)
+#
+# Report encryption types: either the types this installation supports, or the
+# single type in use in a directory. Nothing here touches secret material, so
+# callers can capture the output with $( ).
+#
+# Usage: kaptain-encryption-detect-type [--dir DIR] [--list]
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SECRETS_DIR="${KAPTAIN_USER_SCRIPTS_SECRETS_DIR:-src/secrets}"
+LIST_ONLY=false
+ALLOW_NONE=false
+
+usage() {
+  echo "Usage: kaptain encryption-detect-type [--dir DIR] [--list] [--allow-none]"
+  echo ""
+  echo "Print the encryption type in use in a directory."
+  echo ""
+  echo "Options:"
+  echo "  --dir DIR     Directory to inspect (default: src/secrets)"
+  echo "  --list        Print supported types instead, one per line"
+  echo "  --allow-none  Print nothing and succeed when no encrypted files exist"
+  echo "  -h, --help    Show this help"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --dir requires a value" >&2
+        exit 1
+      fi
+      if [[ "$2" == /* ]]; then
+        echo "ERROR: --dir must be a relative path, i.e. a sub path of this repo" >&2
+        exit 1
+      fi
+      if [[ ! -d "$2" ]]; then
+        echo "ERROR: Directory not found: $2" >&2
+        exit 1
+      fi
+      SECRETS_DIR="$2"
+      shift 2
+      ;;
+    --list)
+      LIST_ONLY=true
+      shift
+      ;;
+    --allow-none)
+      ALLOW_NONE=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "ERROR: Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+# A type is supported when we can decrypt it, so the decrypt leaves are the
+# source of truth. The encrypt leaves are their mirror image.
+SUPPORTED_TYPES=()
+for script in "${SCRIPT_DIR}"/kaptain-decrypt-*; do
+  if [[ -x "${script}" ]]; then
+    SUPPORTED_TYPES+=("${script##*kaptain-decrypt-}")
+  fi
+done
+
+if [[ ${#SUPPORTED_TYPES[@]} -eq 0 ]]; then
+  echo "ERROR: No decrypt scripts found in ${SCRIPT_DIR}" >&2
+  exit 1
+fi
+
+if [[ "${LIST_ONLY}" == "true" ]]; then
+  for suffix in "${SUPPORTED_TYPES[@]}"; do
+    echo "${suffix}"
+  done
+  exit 0
+fi
+
+if [[ ! -d "${SECRETS_DIR}" ]]; then
+  echo "ERROR: Directory not found: ${SECRETS_DIR}" >&2
+  exit 1
+fi
+
+found_type=""
+for suffix in "${SUPPORTED_TYPES[@]}"; do
+  count=$(find "${SECRETS_DIR}" -name "*.${suffix}" -type f 2>/dev/null | wc -l | tr -d ' ')
+  if [[ ${count} -gt 0 ]]; then
+    if [[ -n "${found_type}" && "${found_type}" != "${suffix}" ]]; then
+      echo "ERROR: Mixed encryption types detected in ${SECRETS_DIR}" >&2
+      echo "  Found: .${found_type} and .${suffix}" >&2
+      echo "  All secrets in a directory must use the same encryption type" >&2
+      exit 1
+    fi
+    found_type="${suffix}"
+  fi
+done
+
+if [[ -z "${found_type}" ]]; then
+  # Encrypting a directory that has nothing encrypted yet is legitimate, so
+  # callers doing that ask for silence instead of an error
+  if [[ "${ALLOW_NONE}" == "true" ]]; then
+    exit 0
+  fi
+  echo "ERROR: No encrypted files found in ${SECRETS_DIR}" >&2
+  echo "Supported extensions: ${SUPPORTED_TYPES[*]}" >&2
+  exit 1
+fi
+
+echo "${found_type}"

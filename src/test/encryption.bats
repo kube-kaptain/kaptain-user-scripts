@@ -254,3 +254,116 @@ EOF
     return 1
   fi
 }
+
+# kaptain-encryption-detect-type tests
+@test "kaptain-encryption-detect-type: --help shows usage" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"* ]]
+  [[ "$output" == *"--dir"* ]]
+  [[ "$output" == *"--list"* ]]
+}
+
+@test "kaptain-encryption-detect-type: unknown option fails" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: Unknown option"* ]]
+}
+
+@test "kaptain-encryption-detect-type: --dir requires a value" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --dir
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: --dir requires a value"* ]]
+}
+
+@test "kaptain-encryption-detect-type: absolute path rejected" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path"* ]]
+}
+
+@test "kaptain-encryption-detect-type: nonexistent directory fails" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --dir nonexistent/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Directory not found"* ]]
+}
+
+@test "kaptain-encryption-detect-type: --list prints every supported type" {
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --list
+  [ "$status" -eq 0 ]
+
+  # One line per decrypt leaf script, and every one of them present
+  local expected
+  expected=$(find "${SCRIPTS_DIR}" -name 'kaptain-decrypt-*' -type f | wc -l | tr -d ' ')
+  [ "$(printf '%s\n' "$output" | wc -l | tr -d ' ')" -eq "${expected}" ]
+  [[ "$output" == *"age"* ]]
+  [[ "$output" == *"sha256.aes256"* ]]
+  [[ "$output" == *"sha256.aes256.600k"* ]]
+}
+
+@test "kaptain-encryption-detect-type: detects a single type" {
+  touch "${TEST_DIR}/secret.age"
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --dir "${TEST_DIR}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "age" ]
+}
+
+@test "kaptain-encryption-detect-type: longer suffix is not confused with its prefix" {
+  # sha256.aes256 is a prefix of sha256.aes256.10k - only the exact suffix counts
+  touch "${TEST_DIR}/secret.sha256.aes256.10k"
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --dir "${TEST_DIR}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "sha256.aes256.10k" ]
+}
+
+@test "kaptain-encryption-detect-type: detects nested files" {
+  mkdir -p "${TEST_DIR}/nested"
+  touch "${TEST_DIR}/nested/secret.age"
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --dir "${TEST_DIR}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "age" ]
+}
+
+@test "kaptain-encryption-detect-type: mixed types fail" {
+  touch "${TEST_DIR}/one.age"
+  touch "${TEST_DIR}/two.sha256.aes256"
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --dir "${TEST_DIR}"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Mixed encryption types"* ]]
+}
+
+@test "kaptain-encryption-detect-type: no encrypted files fails" {
+  touch "${TEST_DIR}/plain.txt"
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --dir "${TEST_DIR}"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"No encrypted files found"* ]]
+}
+
+@test "kaptain-encryption-detect-type: --allow-none succeeds silently with nothing encrypted" {
+  touch "${TEST_DIR}/plain.txt"
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --dir "${TEST_DIR}" --allow-none
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "kaptain-encryption-detect-type: --allow-none still reports the type when there is one" {
+  touch "${TEST_DIR}/secret.age"
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --dir "${TEST_DIR}" --allow-none
+  [ "$status" -eq 0 ]
+  [ "$output" = "age" ]
+}
+
+@test "kaptain-encryption-detect-type: --allow-none does not excuse mixed types" {
+  touch "${TEST_DIR}/one.age"
+  touch "${TEST_DIR}/two.sha256.aes256"
+  run "${SCRIPTS_DIR}/kaptain-encryption-detect-type" --dir "${TEST_DIR}" --allow-none
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Mixed encryption types"* ]]
+}
+
+@test "kaptain-encryption-detect-type: respects KAPTAIN_USER_SCRIPTS_SECRETS_DIR" {
+  touch "${TEST_DIR}/secret.age"
+  run env "KAPTAIN_USER_SCRIPTS_SECRETS_DIR=${TEST_DIR}" "${SCRIPTS_DIR}/kaptain-encryption-detect-type"
+  [ "$status" -eq 0 ]
+  [ "$output" = "age" ]
+}

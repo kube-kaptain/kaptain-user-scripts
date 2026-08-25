@@ -54,6 +54,7 @@ _kaptain_flags() {
     kaptain-encrypt-sha256.aes256.10k)  echo "--dir --help --key-file -h" ;;
     kaptain-encrypt-sha256.aes256.600k) echo "--dir --help --key-file -h" ;;
     kaptain-encryption-check-ignores)   echo "--dir" ;;
+    kaptain-encryption-detect-type)     echo "--allow-none --dir --help --list -h" ;;
     kaptain-keygen)                     echo "--help --output --type -h" ;;
     kaptain-rotate-key-for-secrets)     echo "--ask-for-key --dir --help --new-type --output -h" ;;
     kaptain-clean-images)               echo "--all --all-same-reg-ns --dry-run --exclude-prereleases --exclude-releases --extra-prefixes --help --include-prereleases --include-releases --prefix -h" ;;

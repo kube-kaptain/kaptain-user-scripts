@@ -82,6 +82,7 @@ see the [Encryption Walkthrough](EncryptionWalkthrough.md).
 | `kaptain-encrypt-sha256.aes256.10k`  | Encrypt secrets using OpenSSL AES-256 (10k iterations)     |
 | `kaptain-encrypt-sha256.aes256.600k` | Encrypt secrets using OpenSSL AES-256 (600k iterations)    |
 | `kaptain-encryption-check-ignores`   | Check gitignore covers secret files                        |
+| `kaptain-encryption-detect-type`     | Print supported types, or the type in use in a directory   |
 
 ### Build
 

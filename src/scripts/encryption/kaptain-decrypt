@@ -69,14 +69,18 @@ fi
 # Check gitignore configuration before proceeding
 "${SCRIPT_DIR}/kaptain-encryption-check-ignores" --dir "${DIR}"
 
-# Discover supported types from available scripts
+# Supported types and directory detection both come from the shared helper
+DETECT_TYPE="${SCRIPT_DIR}/kaptain-encryption-detect-type"
+
 SUPPORTED_TYPES=()
-for script in "${SCRIPT_DIR}"/kaptain-decrypt-*; do
-  if [[ -x "${script}" ]]; then
-    suffix="${script##*kaptain-decrypt-}"
-    SUPPORTED_TYPES+=("${suffix}")
-  fi
-done
+while IFS= read -r suffix; do
+  SUPPORTED_TYPES+=("${suffix}")
+done < <("${DETECT_TYPE}" --list)
+
+if [[ ${#SUPPORTED_TYPES[@]} -eq 0 ]]; then
+  echo "ERROR: No decrypt scripts found in ${SCRIPT_DIR}" >&2
+  exit 1
+fi
 
 # Check if type is supported
 is_supported_type() {
@@ -90,41 +94,9 @@ is_supported_type() {
   return 1
 }
 
-# Build extension list for detection
-detect_type() {
-  local found_type=""
-  local found_count=0
-
-  for suffix in ${SUPPORTED_TYPES[@]+"${SUPPORTED_TYPES[@]}"}; do
-    # Check for files with this extension
-    local ext=".${suffix}"
-    local count
-    count=$(find "${DIR}" -name "*${ext}" -type f 2>/dev/null | wc -l | tr -d ' ')
-
-    if [[ ${count} -gt 0 ]]; then
-      if [[ -n "${found_type}" && "${found_type}" != "${suffix}" ]]; then
-        echo "ERROR: Mixed encryption types detected in ${DIR}" >&2
-        echo "  Found: .${found_type} and .${suffix}" >&2
-        echo "  Use --type to specify which to decrypt" >&2
-        exit 1
-      fi
-      found_type="${suffix}"
-      found_count=${count}
-    fi
-  done
-
-  if [[ -z "${found_type}" ]]; then
-    echo "ERROR: No encrypted files found in ${DIR}" >&2
-    echo "Supported extensions: ${SUPPORTED_TYPES[*]}" >&2
-    exit 1
-  fi
-
-  echo "${found_type}"
-}
-
 # Determine type
 if [[ -z "${TYPE}" ]]; then
-  TYPE=$(detect_type)
+  TYPE=$("${DETECT_TYPE}" --dir "${DIR}")
   echo "Auto-detected type: ${TYPE}"
 fi
 

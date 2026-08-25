@@ -89,6 +89,7 @@ kaptain run        # runs the main image from the most recent build
 - `kaptain-keygen`
 - `kaptain-rotate-key-for-secrets`
 - `kaptain-encryption-check-ignores`
+- `kaptain-encryption-detect-type`
 - `kaptain-decrypt-age`
 - `kaptain-encrypt-age`
 - `kaptain-decrypt-sha256.aes256`
