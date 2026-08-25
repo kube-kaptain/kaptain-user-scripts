@@ -99,8 +99,8 @@ for enc_file in "${enc_files[@]}"; do
   txt_file="${enc_file%.${SUFFIX}}.txt"
   dir=$(dirname "${enc_file}")
   echo -n "Decrypting ${dir}/{$(basename "${enc_file}") => $(basename "${txt_file}")}"
-  if openssl enc -md sha256 -pbkdf2 -aes-256-cbc -d -base64 \
-    -in "${enc_file}" -out "${txt_file}" -k "${passphrase}" 2>/dev/null; then
+  if printf '%s\n' "${passphrase}" | openssl enc -md sha256 -pbkdf2 -aes-256-cbc -d -base64 \
+    -in "${enc_file}" -out "${txt_file}" -pass stdin 2>/dev/null; then
     echo ""
     success_count=$((success_count + 1))
   else
