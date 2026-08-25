@@ -97,7 +97,7 @@ mkdir -p "${KAPTAIN_TMP}"
 chmod 700 "${KAPTAIN_TMP}"
 identity_file="${KAPTAIN_TMP}/age-identity.$$"
 trap 'rm -f "${identity_file}"; rmdir "${KAPTAIN_TMP}" 2>/dev/null || true' EXIT
-echo "${identity}" > "${identity_file}"
+printf '%s\n' "${identity}" > "${identity_file}"
 chmod 600 "${identity_file}"
 
 # Decrypt each file
