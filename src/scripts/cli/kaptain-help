@@ -199,9 +199,13 @@ Encryption Commands:
 
   kaptain rotate-key-for-secrets [--dir DIR] [--ask-for-key] [--new-type TYPE] [--output FILE]
     Decrypt all secrets with old key and re-encrypt with a new key.
+    Requires the encrypted files to be committed first, since restoring them
+    from git and decrypting with the old key is the way back if the new key
+    is lost. The generated key is displayed, not written to disk, unless
+    --output is given.
     --ask-for-key  Prompt for new key instead of generating one
     --new-type     Migrate to a different encryption type
-    --output       Where to write generated key (default: target/keygen/new.key)
+    --output       Write generated key to a file instead of displaying it
 
 Build Commands:
   kaptain build [--run]

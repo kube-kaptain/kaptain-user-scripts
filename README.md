@@ -125,6 +125,12 @@ useful for scripted/automated workflows.
 
 They all encrypt from `.raw` to their respective suffix and decrypt from their suffix to `.txt`.
 
+`kaptain rotate-key-for-secrets` deletes the current encrypted files and re-encrypts with a
+new key, so it refuses to start unless every encrypted file is committed and unmodified. That
+guarantees a way back: restore the old encrypted files from git and decrypt them with the old
+key, which you still have. A generated key is displayed rather than written to disk, so it
+never lands in the working tree by accident; pass `--output FILE` if you want it written.
+
 Note, right now the encryption scripts target src/secrets by default with a --dir
 override option. In future they'll use KaptainPM.yaml or its fully resolved
 cousin to read the correct directory from and init the project if needed if no
