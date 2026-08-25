@@ -93,6 +93,7 @@ fi
 
 # Set up secure temp directory and write identity file
 KAPTAIN_TMP="${HOME}/.kaptain-tmp"
+# shellcheck disable=SC2174  # -m covers creation, the chmod below covers a pre-existing dir
 mkdir -p -m 700 "${KAPTAIN_TMP}"
 chmod 700 "${KAPTAIN_TMP}"
 identity_file="${KAPTAIN_TMP}/age-identity.$$"

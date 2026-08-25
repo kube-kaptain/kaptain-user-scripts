@@ -8,12 +8,15 @@
 #
 # Usage: kaptain setup brew [--copy-fred] [--apps-in-home] [-h|--help]
 
-set -euo pipefail
-
 # Decision-tracking variables (DO_CORE, DO_HELM, etc.) are assigned per ask
 # for clarity even when only the plan_formulae/plan_casks side-effect is read
 # later. Suppress unused-variable warnings for these.
+#
+# This has to sit above the first command for shellcheck to apply it to the
+# whole file - below "set -euo pipefail" it only covers the next command.
 # shellcheck disable=SC2034
+
+set -euo pipefail
 
 # Flags
 COPY_FRED=false
