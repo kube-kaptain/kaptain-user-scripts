@@ -116,6 +116,11 @@ Utility Commands:
   kaptain list secrets [--dir DIR] [--all] [-v|--verbose]
     List encrypted files and unencrypted raw input and extracted output files
 
+  kaptain list secrets --decrypt [TOKEN_NAME] [--dir DIR]
+    Show decrypted token values instead of file status. Nothing is written
+    to disk. Same output as `kaptain decrypt --show`. Not combinable with
+    --all, since each project has its own key.
+
   kaptain clean secrets [--dir DIR] [--all]
     Remove decrypted secret files (.raw, .txt)
 
@@ -129,6 +134,15 @@ Utility Commands:
     --defaults-dir  Defaults directory (default: src/defaults)
     --dry-run       Show what would change without writing
     --all           Normalise all projects in branchout tree
+
+  kaptain normalise secrets [--dir DIR] [--dry-run]
+    Strip the trailing newline from single-line secret token values. Same
+    rule as normalise config, but a decrypt and re-encrypt round trip with
+    the same key, so the encrypted files must be committed first and only
+    the tokens that actually change are re-encrypted. No --all: each
+    project would need its own key entered.
+    --dir           Secrets directory (default: src/secrets)
+    --dry-run       Show what would change without re-encrypting
 
   kaptain clean images [--all|--all-same-reg-ns|--prefix=X]
                        [--extra-prefixes=A,B,...]
@@ -192,6 +206,13 @@ Encryption Commands:
     --type    Encryption type (auto-detected from file extensions if omitted)
     --dir     Target directory (default: src/secrets)
 
+  kaptain decrypt --show [TOKEN_NAME] [--dir DIR]
+    Display token values instead of writing .txt files. Nothing is written
+    to disk. Values are grouped the same way as `kaptain list config`, with
+    multi-line values shown as a line count. Name one token to print just
+    its value, whole, however many lines it has, which pipes cleanly.
+    An alias for `kaptain list secrets --decrypt`.
+
   kaptain keygen [--type age|plain] [--output FILE]
     Generate an encryption/decryption key.
     --type    Key type: age (default) or plain
@@ -199,9 +220,13 @@ Encryption Commands:
 
   kaptain rotate-key-for-secrets [--dir DIR] [--ask-for-key] [--new-type TYPE] [--output FILE]
     Decrypt all secrets with old key and re-encrypt with a new key.
+    Requires the encrypted files to be committed first, since restoring them
+    from git and decrypting with the old key is the way back if the new key
+    is lost. The generated key is displayed, not written to disk, unless
+    --output is given.
     --ask-for-key  Prompt for new key instead of generating one
     --new-type     Migrate to a different encryption type
-    --output       Where to write generated key (default: target/keygen/new.key)
+    --output       Write generated key to a file instead of displaying it
 
 Build Commands:
   kaptain build [--run]

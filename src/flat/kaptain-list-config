@@ -31,7 +31,7 @@ usage() {
 find_branchout_root() {
   local dir="${PWD}"
   BRANCHOUT_PROJECTS_DIRECTORY="${BRANCHOUT_PROJECTS_DIRECTORY:-projects}"
-  # shellcheck disable=SC1091
+  # shellcheck disable=SC1090,SC1091  # user config path, not resolvable at lint time
   test -f ~/.config/branchoutrc && source ~/.config/branchoutrc
   local home_projects="${HOME}/${BRANCHOUT_PROJECTS_DIRECTORY}"
 

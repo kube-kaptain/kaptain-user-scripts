@@ -12,14 +12,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Parse arguments - consume --type, pass everything else through
 TYPE=""
 DIR="${KAPTAIN_USER_SCRIPTS_SECRETS_DIR:-src/secrets}"
+SHOW=false
+WANT_TOKEN=""
 PASSTHROUGH=()
 
 usage() {
   echo "Usage: kaptain decrypt [--type TYPE] [--dir DIR]"
+  echo "       kaptain decrypt --show [TOKEN_NAME] [--dir DIR]"
   echo ""
   echo "Options:"
   echo "  --type TYPE   Encryption type (auto-detected if omitted)"
   echo "  --dir DIR     Target directory (default: src/secrets)"
+  echo "  --show        Display token values instead of writing .txt files."
+  echo "                Nothing is written to disk. Name one token to print"
+  echo "                just its value, whole, however many lines it has."
 }
 
 while [[ $# -gt 0 ]]; do
@@ -43,17 +49,41 @@ while [[ $# -gt 0 ]]; do
       PASSTHROUGH+=("$1" "$2")
       shift 2
       ;;
+    --show)
+      SHOW=true
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
       ;;
-    *)
+    -*)
       echo "ERROR: Unknown option: $1" >&2
       usage >&2
       exit 1
       ;;
+    *)
+      # A single bare argument is the token name to show
+      if [[ -n "${WANT_TOKEN}" ]]; then
+        echo "ERROR: Only one token name may be given: ${WANT_TOKEN}, $1" >&2
+        exit 1
+      fi
+      WANT_TOKEN="$1"
+      shift
+      ;;
   esac
 done
+
+if [[ -n "${WANT_TOKEN}" && "${SHOW}" == "false" ]]; then
+  echo "ERROR: A token name only means something with --show: ${WANT_TOKEN}" >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ "${SHOW}" == "true" && -n "${TYPE}" ]]; then
+  echo "ERROR: --type cannot be combined with --show, the type is detected" >&2
+  exit 1
+fi
 
 # Reject absolute paths
 if [[ "${DIR}" == /* ]]; then
@@ -66,17 +96,31 @@ if [[ ! -d "${DIR}" ]]; then
   exit 1
 fi
 
+# Showing values writes nothing, so it is a straight alias for the list view,
+# which owns the formatting. The gitignore check below is about files landing
+# on disk and has nothing to check here.
+if [[ "${SHOW}" == "true" ]]; then
+  if [[ -n "${WANT_TOKEN}" ]]; then
+    exec "${SCRIPT_DIR}/kaptain-list-secrets" --dir "${DIR}" --decrypt "${WANT_TOKEN}"
+  fi
+  exec "${SCRIPT_DIR}/kaptain-list-secrets" --dir "${DIR}" --decrypt
+fi
+
 # Check gitignore configuration before proceeding
 "${SCRIPT_DIR}/kaptain-encryption-check-ignores" --dir "${DIR}"
 
-# Discover supported types from available scripts
+# Supported types and directory detection both come from the shared helper
+DETECT_TYPE="${SCRIPT_DIR}/kaptain-encryption-detect-type"
+
 SUPPORTED_TYPES=()
-for script in "${SCRIPT_DIR}"/kaptain-decrypt-*; do
-  if [[ -x "${script}" ]]; then
-    suffix="${script##*kaptain-decrypt-}"
-    SUPPORTED_TYPES+=("${suffix}")
-  fi
-done
+while IFS= read -r suffix; do
+  SUPPORTED_TYPES+=("${suffix}")
+done < <("${DETECT_TYPE}" --list)
+
+if [[ ${#SUPPORTED_TYPES[@]} -eq 0 ]]; then
+  echo "ERROR: No decrypt scripts found in ${SCRIPT_DIR}" >&2
+  exit 1
+fi
 
 # Check if type is supported
 is_supported_type() {
@@ -90,41 +134,9 @@ is_supported_type() {
   return 1
 }
 
-# Build extension list for detection
-detect_type() {
-  local found_type=""
-  local found_count=0
-
-  for suffix in ${SUPPORTED_TYPES[@]+"${SUPPORTED_TYPES[@]}"}; do
-    # Check for files with this extension
-    local ext=".${suffix}"
-    local count
-    count=$(find "${DIR}" -name "*${ext}" -type f 2>/dev/null | wc -l | tr -d ' ')
-
-    if [[ ${count} -gt 0 ]]; then
-      if [[ -n "${found_type}" && "${found_type}" != "${suffix}" ]]; then
-        echo "ERROR: Mixed encryption types detected in ${DIR}" >&2
-        echo "  Found: .${found_type} and .${suffix}" >&2
-        echo "  Use --type to specify which to decrypt" >&2
-        exit 1
-      fi
-      found_type="${suffix}"
-      found_count=${count}
-    fi
-  done
-
-  if [[ -z "${found_type}" ]]; then
-    echo "ERROR: No encrypted files found in ${DIR}" >&2
-    echo "Supported extensions: ${SUPPORTED_TYPES[*]}" >&2
-    exit 1
-  fi
-
-  echo "${found_type}"
-}
-
 # Determine type
 if [[ -z "${TYPE}" ]]; then
-  TYPE=$(detect_type)
+  TYPE=$("${DETECT_TYPE}" --dir "${DIR}")
   echo "Auto-detected type: ${TYPE}"
 fi
 

@@ -75,6 +75,7 @@ GLOBAL_IGNORE=""
 if command -v git &> /dev/null; then
   GLOBAL_IGNORE=$(git config --global core.excludesFile 2>/dev/null || echo "")
   # Expand ~ if present
+  # shellcheck disable=SC2088  # the literal ~ is the pattern we match, expanded below
   if [[ "${GLOBAL_IGNORE}" == "~/"* ]]; then
     GLOBAL_IGNORE="${HOME}/${GLOBAL_IGNORE#\~/}"
   fi

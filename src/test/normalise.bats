@@ -289,3 +289,173 @@ setup() {
   [ "$(cat "${branchout_root}/group/group-alpha/src/config/key")" = "alpha-val" ]
   [ "$(cat "${branchout_root}/group/group-beta/src/defaults/key")" = "beta-val" ]
 }
+
+# =============================================================================
+# normalise secrets
+# =============================================================================
+
+SECRETS_PASSPHRASE="test-passphrase-for-ci-only"
+
+# Build a secrets dir with one token of each category, encrypted and committed.
+# The script refuses to rewrite ciphertext that is not accounted for in git, and
+# resolves git from its working directory, so this is a throwaway repo that the
+# tests run inside.
+setup_secrets_repo() {
+  mkdir -p "${TEST_NORM}/secrets/nested"
+  printf 'no-newline-value'     > "${TEST_NORM}/secrets/canonical.raw"
+  printf 'one-newline-value\n'  > "${TEST_NORM}/secrets/needs-strip.raw"
+  printf 'multi\nline\nvalue\n' > "${TEST_NORM}/secrets/multi.raw"
+  printf 'nested-one\n'         > "${TEST_NORM}/secrets/nested/deep.raw"
+
+  ( cd "${TEST_NORM}" && printf '%s\n' "${SECRETS_PASSPHRASE}" \
+      | "${TEST_BIN_ABS}/kaptain-encrypt-sha256.aes256" --dir secrets ) > /dev/null
+  find "${TEST_NORM}/secrets" -name '*.raw' -delete
+
+  git -C "${TEST_NORM}" init -q
+  git -C "${TEST_NORM}" config user.email "test@example.com"
+  git -C "${TEST_NORM}" config user.name "Kaptain Test"
+  git -C "${TEST_NORM}" config commit.gpgsign false
+  git -C "${TEST_NORM}" add -A -f secrets
+  git -C "${TEST_NORM}" commit -q -m "encrypted"
+}
+
+# Decrypt everything and echo one token's value with a sentinel so trailing
+# newlines survive command substitution
+token_value() {
+  ( cd "${TEST_NORM}" && printf '%s\n' "${SECRETS_PASSPHRASE}" \
+      | "${TEST_BIN_ABS}/kaptain-decrypt-sha256.aes256" --dir secrets ) > /dev/null
+  local raw
+  raw="$(cat "${TEST_NORM}/secrets/$1.txt"; printf X)"
+  find "${TEST_NORM}/secrets" -name '*.txt' -delete
+  printf '%s' "${raw%X}"
+}
+
+@test "normalise secrets: --help shows usage" {
+  run "${TEST_BIN}/kaptain-normalise-secrets" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"* ]]
+  [[ "$output" == *"--dir"* ]]
+  [[ "$output" == *"--dry-run"* ]]
+}
+
+@test "normalise secrets: unknown option fails" {
+  run "${TEST_BIN}/kaptain-normalise-secrets" --bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: Unknown option"* ]]
+}
+
+@test "normalise secrets: absolute --dir rejected" {
+  run "${TEST_BIN}/kaptain-normalise-secrets" --dir /absolute/path
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"must be a relative path"* ]]
+}
+
+@test "normalise secrets: router lists it as a target" {
+  run "${TEST_BIN}/kaptain-normalise"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"secrets"* ]]
+}
+
+@test "normalise secrets: dry run reports and changes nothing" {
+  setup_secrets_repo
+
+  run bash -c "cd '${TEST_NORM_ABS}' && printf '%s\n' '${SECRETS_PASSPHRASE}' | '${TEST_BIN_ABS}/kaptain-normalise-secrets' --dir secrets --dry-run"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"would normalise: needs-strip"* ]]
+  [[ "$output" == *"would normalise: nested/deep"* ]]
+  [[ "$output" == *"1 already canonical"* ]]
+  [[ "$output" == *"1 multi-line"* ]]
+
+  git -C "${TEST_NORM}" diff --quiet -- secrets
+  [ "$(find "${TEST_NORM}/secrets" \( -name '*.txt' -o -name '*.raw' \) | wc -l | tr -d ' ')" -eq 0 ]
+}
+
+@test "normalise secrets: rewrites only the tokens that change" {
+  setup_secrets_repo
+
+  run bash -c "cd '${TEST_NORM_ABS}' && printf '%s\n' '${SECRETS_PASSPHRASE}' | '${TEST_BIN_ABS}/kaptain-normalise-secrets' --dir secrets"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"2 normalised"* ]]
+
+  # openssl salts randomly, so any re-encryption shows as a diff
+  local changed
+  changed=$(git -C "${TEST_NORM}" diff --name-only -- secrets | sort)
+  [ "${changed}" = "$(printf 'secrets/needs-strip.sha256.aes256\nsecrets/nested/deep.sha256.aes256')" ]
+
+  [ "$(find "${TEST_NORM}/secrets" \( -name '*.txt' -o -name '*.raw' \) | wc -l | tr -d ' ')" -eq 0 ]
+}
+
+@test "normalise secrets: strips single-line and preserves multi-line values" {
+  setup_secrets_repo
+
+  ( cd "${TEST_NORM}" && printf '%s\n' "${SECRETS_PASSPHRASE}" \
+      | "${TEST_BIN_ABS}/kaptain-normalise-secrets" --dir secrets ) > /dev/null
+
+  [ "$(token_value needs-strip)" = "one-newline-value" ]
+  [ "$(token_value nested/deep)" = "nested-one" ]
+  [ "$(token_value canonical)" = "no-newline-value" ]
+  [ "$(token_value multi)" = "$(printf 'multi\nline\nvalue\n')" ]
+}
+
+@test "normalise secrets: second run finds nothing to do" {
+  setup_secrets_repo
+
+  ( cd "${TEST_NORM}" && printf '%s\n' "${SECRETS_PASSPHRASE}" \
+      | "${TEST_BIN_ABS}/kaptain-normalise-secrets" --dir secrets ) > /dev/null
+  git -C "${TEST_NORM}" add -A -f secrets
+  git -C "${TEST_NORM}" commit -q -m "normalised"
+
+  run bash -c "cd '${TEST_NORM_ABS}' && printf '%s\n' '${SECRETS_PASSPHRASE}' | '${TEST_BIN_ABS}/kaptain-normalise-secrets' --dir secrets"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"nothing to normalise"* ]]
+  [[ "$output" == *"0 normalised"* ]]
+  git -C "${TEST_NORM}" diff --quiet -- secrets
+}
+
+@test "normalise secrets: wrong key aborts without changes" {
+  setup_secrets_repo
+
+  run bash -c "cd '${TEST_NORM_ABS}' && printf '%s\n' 'wrong-key' | '${TEST_BIN_ABS}/kaptain-normalise-secrets' --dir secrets"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"aborted"* ]]
+  git -C "${TEST_NORM}" diff --quiet -- secrets
+  [ "$(find "${TEST_NORM}/secrets" \( -name '*.txt' -o -name '*.raw' \) | wc -l | tr -d ' ')" -eq 0 ]
+}
+
+@test "normalise secrets: refuses when encrypted files are uncommitted" {
+  setup_secrets_repo
+  printf 'tampered\n' >> "${TEST_NORM}/secrets/multi.sha256.aes256"
+
+  run bash -c "cd '${TEST_NORM_ABS}' && printf '%s\n' '${SECRETS_PASSPHRASE}' | '${TEST_BIN_ABS}/kaptain-normalise-secrets' --dir secrets"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not accounted for in git"* ]]
+}
+
+@test "normalise secrets: refuses when the directory is not clean" {
+  setup_secrets_repo
+  echo "leftover" > "${TEST_NORM}/secrets/leftover.txt"
+
+  run bash -c "cd '${TEST_NORM_ABS}' && printf '%s\n' '${SECRETS_PASSPHRASE}' | '${TEST_BIN_ABS}/kaptain-normalise-secrets' --dir secrets"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not clean"* ]]
+  [[ "$output" == *"kaptain clean secrets"* ]]
+}
+
+@test "normalise secrets: dry run works without git" {
+  mkdir -p "${TEST_NORM}/secrets"
+  printf 'one-newline-value\n' > "${TEST_NORM}/secrets/needs-strip.raw"
+  ( cd "${TEST_NORM}" && printf '%s\n' "${SECRETS_PASSPHRASE}" \
+      | "${TEST_BIN_ABS}/kaptain-encrypt-sha256.aes256" --dir secrets ) > /dev/null
+  find "${TEST_NORM}/secrets" -name '*.raw' -delete
+
+  run bash -c "cd '${TEST_NORM_ABS}' && printf '%s\n' '${SECRETS_PASSPHRASE}' | '${TEST_BIN_ABS}/kaptain-normalise-secrets' --dir secrets --dry-run"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"would normalise: needs-strip"* ]]
+}

@@ -45,7 +45,7 @@ Currently CLI, routing, utility and encryption scripts useful to kaptain users.
 |---------------------|----------------------------------------------------|
 | `kaptain-list`      | Route to list sub-commands (config, secrets, etc.) |
 | `kaptain-clean`     | Route to clean sub-commands (secrets, etc.)        |
-| `kaptain-normalise` | Route to normalise sub-commands (config, etc.)     |
+| `kaptain-normalise` | Route to normalise sub-commands (config, secrets)  |
 | `kaptain-encrypt`   | Auto-detect encryption type and encrypt            |
 | `kaptain-decrypt`   | Auto-detect encryption type and decrypt            |
 | `kaptain-setup`     | Route to setup sub-commands (brew, etc.)           |
@@ -82,6 +82,8 @@ see the [Encryption Walkthrough](EncryptionWalkthrough.md).
 | `kaptain-encrypt-sha256.aes256.10k`  | Encrypt secrets using OpenSSL AES-256 (10k iterations)     |
 | `kaptain-encrypt-sha256.aes256.600k` | Encrypt secrets using OpenSSL AES-256 (600k iterations)    |
 | `kaptain-encryption-check-ignores`   | Check gitignore covers secret files                        |
+| `kaptain-encryption-detect-type`     | Print supported types, or the type in use in a directory   |
+| `kaptain-normalise-secrets`          | Strip trailing newlines from single-line token values      |
 
 ### Build
 
@@ -124,6 +126,19 @@ instead of prompting interactively. This is used by `kaptain-rotate-key-for-secr
 useful for scripted/automated workflows.
 
 They all encrypt from `.raw` to their respective suffix and decrypt from their suffix to `.txt`.
+
+`kaptain decrypt --show`, and its alias `kaptain list secrets --decrypt`, display token values
+without writing anything to disk. Output is grouped the same way as `kaptain list config`, with
+multi-line values shown as a line count rather than dumped into the column. Name a single token
+to print just its value, whole however many lines it has, with no trailing newline when piped,
+so `kaptain decrypt --show db-password | pbcopy` does the obvious thing. The plaintext moves
+from the decrypting process on a pipe, never through a file, an argument or the environment.
+
+`kaptain rotate-key-for-secrets` deletes the current encrypted files and re-encrypts with a
+new key, so it refuses to start unless every encrypted file is committed and unmodified. That
+guarantees a way back: restore the old encrypted files from git and decrypt them with the old
+key, which you still have. A generated key is displayed rather than written to disk, so it
+never lands in the working tree by accident; pass `--output FILE` if you want it written.
 
 Note, right now the encryption scripts target src/secrets by default with a --dir
 override option. In future they'll use KaptainPM.yaml or its fully resolved

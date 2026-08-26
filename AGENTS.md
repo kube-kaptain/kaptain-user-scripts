@@ -29,10 +29,21 @@ src/docker/                Dockerfile, completion script
 .github/bin/run-tests.bash
 ```
 
-This runs 4 stages: check scripts (shellcheck etc), BATS tests, and a completions staleness
-check. All stages must pass. Run this after every change.
+This runs 6 stages: a `src/flat/` staleness check, every `src/test/check-*.bash` script
+(bash 3.2 compatibility, executable bits, shellcheck), the BATS tests, and a completions
+staleness check. All stages must pass. Run this after every change.
 
-BATS requires `bats-core` installed locally (`brew install bats-core` on macOS).
+Adding a `src/test/check-<name>.bash` script is enough to add a stage; the runner discovers
+them. The two staleness stages regenerate their artifacts and then fail if that produced a
+diff, so a failure there means "commit the regenerated files", not "the code is broken".
+
+Shellcheck gates on warnings and above, with no repo-wide exclusions. Every suppression is
+an inline `# shellcheck disable=SCxxxx` next to the code it applies to, with a comment
+explaining why. Note that a file-wide directive must sit above the first command, so above
+`set -euo pipefail`, not below it, or it only covers the next command.
+
+BATS requires `bats-core` installed locally (`brew install bats-core` on macOS), and
+shellcheck requires `shellcheck` (`brew install shellcheck`).
 
 
 ## Completions

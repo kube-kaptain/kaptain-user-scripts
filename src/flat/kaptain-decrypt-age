@@ -11,6 +11,10 @@ set -euo pipefail
 # Handle arguments
 SECRETS_DIR="${KAPTAIN_USER_SCRIPTS_SECRETS_DIR:-src/secrets}"
 KEY_FILE=""
+SHOW=false
+TOKEN=""
+
+USAGE="Usage: $(basename "$0") [--dir DIR] [--key-file FILE] [--show [--token NAME]]"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -42,13 +46,29 @@ while [[ $# -gt 0 ]]; do
       KEY_FILE="$2"
       shift 2
       ;;
+    --show)
+      SHOW=true
+      shift
+      ;;
+    --token)
+      if [[ -z "${2:-}" ]]; then
+        echo "ERROR: --token requires an argument" >&2
+        exit 1
+      fi
+      TOKEN="$2"
+      shift 2
+      ;;
     -h|--help)
-      echo "Usage: $(basename "$0") [--dir DIR] [--key-file FILE]"
+      echo "${USAGE}"
+      echo ""
+      echo "  --show          Emit NAME\\0VALUE\\0 pairs on stdout instead of"
+      echo "                  writing .txt files. Nothing is written to disk."
+      echo "  --token NAME    With --show, decrypt only this one token"
       exit 0
       ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
-      echo "Usage: $(basename "$0") [--dir DIR] [--key-file FILE]" >&2
+      echo "${USAGE}" >&2
       exit 1
       ;;
   esac
@@ -71,18 +91,25 @@ while IFS= read -r -d '' file; do
 done < <(find "${SECRETS_DIR}" -name "*.age" -type f -print0)
 
 if [[ ${#age_files[@]} -eq 0 ]]; then
-  echo "No .age files found in ${SECRETS_DIR}"
+  if [[ "${SHOW}" == "true" ]]; then
+    echo "No .age files found in ${SECRETS_DIR}" >&2
+  else
+    echo "No .age files found in ${SECRETS_DIR}"
+  fi
   exit 0
 fi
 
-echo "Found ${#age_files[@]} .age file(s) to decrypt"
+if [[ "${SHOW}" == "false" ]]; then
+  echo "Found ${#age_files[@]} .age file(s) to decrypt"
+fi
 
 # Get identity (secret key) from key file or prompt
 if [[ -n "${KEY_FILE}" ]]; then
   identity=$(<"${KEY_FILE}")
 else
   read -r -s -p "Enter passphrase: " identity
-  echo
+  # Belongs with the prompt on stderr, or it corrupts the --show stream
+  echo >&2
 fi
 
 # Validate identity is a valid age secret key
@@ -91,16 +118,42 @@ if [[ "${identity}" != AGE-SECRET-KEY-* ]]; then
   exit 1
 fi
 
-# Set up secure temp directory and write identity file
-KAPTAIN_TMP="${HOME}/.kaptain-tmp"
-mkdir -p "${KAPTAIN_TMP}"
-chmod 700 "${KAPTAIN_TMP}"
-identity_file="${KAPTAIN_TMP}/age-identity.$$"
-trap 'rm -f "${identity_file}"; rmdir "${KAPTAIN_TMP}" 2>/dev/null || true' EXIT
-echo "${identity}" > "${identity_file}"
-chmod 600 "${identity_file}"
+# Show mode: emit NAME\0VALUE\0 pairs on stdout and write nothing to disk.
+# NUL delimiting needs no escaping, so values survive newlines, quotes and
+# trailing whitespace byte for byte. Progress and errors go to stderr so they
+# cannot land in the middle of the stream.
+if [[ "${SHOW}" == "true" ]]; then
+  show_failed=0
+  for age_file in "${age_files[@]}"; do
+    name="${age_file#"${SECRETS_DIR}/"}"
+    name="${name%.age}"
+    if [[ -n "${TOKEN}" && "${name}" != "${TOKEN}" ]]; then
+      continue
+    fi
+
+    # Sentinel X keeps trailing newlines that command substitution would strip,
+    # and the inner exit carries the real status out of the subshell
+    rc=0
+    value=$(age -d -i <(printf '%s\n' "${identity}") "${age_file}" 2>/dev/null; s=$?; printf X; exit "${s}") || rc=$?
+    if [[ ${rc} -ne 0 ]]; then
+      echo "ERROR: Failed to decrypt ${age_file}" >&2
+      show_failed=$((show_failed + 1))
+      continue
+    fi
+
+    printf '%s\0%s\0' "${name}" "${value%X}"
+  done
+
+  if [[ ${show_failed} -gt 0 ]]; then
+    exit 1
+  fi
+  exit 0
+fi
 
 # Decrypt each file
+# age -i wants a path, so the identity is handed over on a pipe via /dev/fd
+# rather than written to disk. It must be created per invocation: a pipe is
+# drained by the first reader, so one shared fd would only serve one file.
 success_count=0
 fail_count=0
 failed_files=()
@@ -110,7 +163,7 @@ for age_file in "${age_files[@]}"; do
   txt_file="${age_file%.age}.txt"
   dir=$(dirname "${age_file}")
   echo -n "Decrypting ${dir}/{$(basename "${age_file}") => $(basename "${txt_file}")}"
-  if age -d -i "${identity_file}" -o "${txt_file}" "${age_file}" 2>/dev/null; then
+  if age -d -i <(printf '%s\n' "${identity}") -o "${txt_file}" "${age_file}" 2>/dev/null; then
     echo ""
     success_count=$((success_count + 1))
   else

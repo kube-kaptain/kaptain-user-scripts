@@ -66,7 +66,7 @@ kaptain run        # runs the main image from the most recent build
 - `kaptain-build`     - resolves kind, delegates to build scripts repo
 - `kaptain-update`    - dispatches to `kaptain-update-<target>` (e.g. versions)
 - `kaptain-setup`     - dispatches to `kaptain-setup-<target>` (e.g. brew)
-- `kaptain-normalise` - dispatches to `kaptain-normalise-<target>` (e.g. config)
+- `kaptain-normalise` - dispatches to `kaptain-normalise-<target>` (config, secrets)
 
 ### Build Scripts
 - `kaptain-build`
@@ -89,6 +89,8 @@ kaptain run        # runs the main image from the most recent build
 - `kaptain-keygen`
 - `kaptain-rotate-key-for-secrets`
 - `kaptain-encryption-check-ignores`
+- `kaptain-encryption-detect-type`
+- `kaptain-normalise-secrets`
 - `kaptain-decrypt-age`
 - `kaptain-encrypt-age`
 - `kaptain-decrypt-sha256.aes256`

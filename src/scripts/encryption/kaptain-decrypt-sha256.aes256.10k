@@ -15,6 +15,10 @@ SUFFIX="sha256.aes256.10k"
 # Handle arguments
 SECRETS_DIR="${KAPTAIN_USER_SCRIPTS_SECRETS_DIR:-src/secrets}"
 KEY_FILE=""
+SHOW=false
+TOKEN=""
+
+USAGE="Usage: $(basename "$0") [--dir DIR] [--key-file FILE] [--show [--token NAME]]"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -46,13 +50,29 @@ while [[ $# -gt 0 ]]; do
       KEY_FILE="$2"
       shift 2
       ;;
+    --show)
+      SHOW=true
+      shift
+      ;;
+    --token)
+      if [[ -z "${2:-}" ]]; then
+        echo "ERROR: --token requires an argument" >&2
+        exit 1
+      fi
+      TOKEN="$2"
+      shift 2
+      ;;
     -h|--help)
-      echo "Usage: $(basename "$0") [--dir DIR] [--key-file FILE]"
+      echo "${USAGE}"
+      echo ""
+      echo "  --show          Emit NAME\\0VALUE\\0 pairs on stdout instead of"
+      echo "                  writing .txt files. Nothing is written to disk."
+      echo "  --token NAME    With --show, decrypt only this one token"
       exit 0
       ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
-      echo "Usage: $(basename "$0") [--dir DIR] [--key-file FILE]" >&2
+      echo "${USAGE}" >&2
       exit 1
       ;;
   esac
@@ -75,18 +95,58 @@ while IFS= read -r -d '' file; do
 done < <(find "${SECRETS_DIR}" -name "*.${SUFFIX}" -type f -print0)
 
 if [[ ${#enc_files[@]} -eq 0 ]]; then
-  echo "No .${SUFFIX} files found in ${SECRETS_DIR}"
+  if [[ "${SHOW}" == "true" ]]; then
+    echo "No .${SUFFIX} files found in ${SECRETS_DIR}" >&2
+  else
+    echo "No .${SUFFIX} files found in ${SECRETS_DIR}"
+  fi
   exit 0
 fi
 
-echo "Found ${#enc_files[@]} .${SUFFIX} file(s) to decrypt"
+if [[ "${SHOW}" == "false" ]]; then
+  echo "Found ${#enc_files[@]} .${SUFFIX} file(s) to decrypt"
+fi
 
 # Get passphrase from key file or prompt
 if [[ -n "${KEY_FILE}" ]]; then
   passphrase=$(<"${KEY_FILE}")
 else
   read -r -s -p "Enter passphrase: " passphrase
-  echo
+  # Belongs with the prompt on stderr, or it corrupts the --show stream
+  echo >&2
+fi
+
+# Show mode: emit NAME\0VALUE\0 pairs on stdout and write nothing to disk.
+# NUL delimiting needs no escaping, so values survive newlines, quotes and
+# trailing whitespace byte for byte. Progress and errors go to stderr so they
+# cannot land in the middle of the stream.
+if [[ "${SHOW}" == "true" ]]; then
+  show_failed=0
+  for enc_file in "${enc_files[@]}"; do
+    name="${enc_file#"${SECRETS_DIR}/"}"
+    name="${name%".${SUFFIX}"}"
+    if [[ -n "${TOKEN}" && "${name}" != "${TOKEN}" ]]; then
+      continue
+    fi
+
+    # Sentinel X keeps trailing newlines that command substitution would strip,
+    # and the inner exit carries the real status out of the subshell
+    rc=0
+    value=$(printf '%s\n' "${passphrase}" | openssl enc -md sha256 -pbkdf2 -iter "${ITERATIONS}" -aes-256-cbc -d -base64 \
+      -in "${enc_file}" -pass stdin 2>/dev/null; s=$?; printf X; exit "${s}") || rc=$?
+    if [[ ${rc} -ne 0 ]]; then
+      echo "ERROR: Failed to decrypt ${enc_file}" >&2
+      show_failed=$((show_failed + 1))
+      continue
+    fi
+
+    printf '%s\0%s\0' "${name}" "${value%X}"
+  done
+
+  if [[ ${show_failed} -gt 0 ]]; then
+    exit 1
+  fi
+  exit 0
 fi
 
 # Decrypt each file
@@ -99,8 +159,8 @@ for enc_file in "${enc_files[@]}"; do
   txt_file="${enc_file%.${SUFFIX}}.txt"
   dir=$(dirname "${enc_file}")
   echo -n "Decrypting ${dir}/{$(basename "${enc_file}") => $(basename "${txt_file}")}"
-  if openssl enc -md sha256 -pbkdf2 -iter "${ITERATIONS}" -aes-256-cbc -d -base64 \
-    -in "${enc_file}" -out "${txt_file}" -k "${passphrase}" 2>/dev/null; then
+  if printf '%s\n' "${passphrase}" | openssl enc -md sha256 -pbkdf2 -iter "${ITERATIONS}" -aes-256-cbc -d -base64 \
+    -in "${enc_file}" -out "${txt_file}" -pass stdin 2>/dev/null; then
     echo ""
     success_count=$((success_count + 1))
   else

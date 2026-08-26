@@ -264,20 +264,43 @@ count_files() {
   [[ "$output" == *"Not a valid age secret key"* ]]
 }
 
-@test "age: temp directory cleanup" {
+@test "age: identity is never written to disk" {
   if ! command -v age &> /dev/null || ! command -v age-keygen &> /dev/null; then
     skip "age/age-keygen not installed"
   fi
 
   AGE_KEY=$(age-keygen 2>/dev/null | grep '^AGE-SECRET-KEY-')
 
-  # Encrypt
+  # The identity reaches age on a pipe, so neither script should create the
+  # old temp directory. Recorded rather than removed: it is under $HOME and a
+  # stale one from an older version is not this test's business to delete.
+  local before=absent
+  [[ -e "${HOME}/.kaptain-tmp" ]] && before=present
+
   echo "${AGE_KEY}" | "${SCRIPTS_DIR}/kaptain-encrypt-age" --dir "${TEST_DIR}"
 
-  # Check that ~/.kaptain-tmp is empty or doesn't exist
+  local after=absent
+  [[ -e "${HOME}/.kaptain-tmp" ]] && after=present
+  [ "${before}" = "${after}" ]
+
+  find "${TEST_DIR}" -name "*.raw" -delete
+  echo "${AGE_KEY}" | "${SCRIPTS_DIR}/kaptain-decrypt-age" --dir "${TEST_DIR}"
+
+  after=absent
+  [[ -e "${HOME}/.kaptain-tmp" ]] && after=present
+  [ "${before}" = "${after}" ]
+
+  # And no identity file anywhere in it, even if a stale directory survives
   if [[ -d "${HOME}/.kaptain-tmp" ]]; then
-    [ "$(ls -A "${HOME}/.kaptain-tmp" 2>/dev/null | wc -l)" -eq 0 ]
+    [ "$(find "${HOME}/.kaptain-tmp" -name 'age-identity.*' 2>/dev/null | wc -l | tr -d ' ')" -eq 0 ]
   fi
+
+  # The checks above only prove nothing was left behind. A version that wrote
+  # the identity out and deleted it again on exit would pass them, which is
+  # exactly what this script used to do. So assert structurally that no such
+  # write exists at all.
+  ! grep -qE 'kaptain-tmp|identity_file' "${SCRIPTS_DIR}/kaptain-encrypt-age"
+  ! grep -qE 'kaptain-tmp|identity_file' "${SCRIPTS_DIR}/kaptain-decrypt-age"
 }
 
 # =============================================================================

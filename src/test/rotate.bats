@@ -11,11 +11,21 @@ TEST_PASSPHRASE="test-passphrase-for-ci-only"
 NEW_PASSPHRASE="new-passphrase-for-rotation"
 
 setup() {
+  SCRIPTS_ABS="$(pwd)/${SCRIPTS_DIR}"
   TEST_BASE="${OUTPUT_SUB_PATH}/test/rotate"
   TEST_DIR="${TEST_BASE}/secrets"
   rm -rf "${TEST_BASE}"
   mkdir -p "${TEST_DIR}"
   cp -r "${FIXTURES_DIR}"/* "${TEST_DIR}"/
+
+  # Rotation refuses to run unless the encrypted files are committed, so the
+  # test area is its own throwaway repo. The script resolves git from its
+  # working directory, so rotations are run from inside TEST_BASE.
+  git -C "${TEST_BASE}" init -q
+  git -C "${TEST_BASE}" config user.email "test@example.com"
+  git -C "${TEST_BASE}" config user.name "Kaptain Test"
+  git -C "${TEST_BASE}" config commit.gpgsign false
+  git -C "${TEST_BASE}" commit -q --allow-empty -m "initial"
 }
 
 teardown() {
@@ -26,8 +36,20 @@ count_files() {
   find "$1" -name "$2" -type f 2>/dev/null | wc -l | tr -d ' '
 }
 
-# Helper: encrypt fixtures and clean up .raw files to create a "normal" state
+# Commit whatever is currently in the test repo's secrets directory
+commit_secrets() {
+  git -C "${TEST_BASE}" add -A -f secrets
+  git -C "${TEST_BASE}" commit -q -m "encrypted secrets"
+}
+
+# Helper: encrypt fixtures, drop the .raw files, commit - the normal state
 encrypt_fixtures() {
+  encrypt_fixtures_uncommitted "$@"
+  commit_secrets
+}
+
+# Helper: as above but leaves the encrypted files uncommitted
+encrypt_fixtures_uncommitted() {
   local type="${1:-sha256.aes256}"
   local passphrase="${2:-${TEST_PASSPHRASE}}"
   echo "${passphrase}" | "${SCRIPTS_DIR}/kaptain-encrypt-${type}" --dir "${TEST_DIR}"
@@ -159,23 +181,83 @@ encrypt_fixtures() {
 }
 
 # =============================================================================
+# Git accountability pre-flight
+# =============================================================================
+
+@test "rotate: fails when encrypted files are untracked" {
+  encrypt_fixtures_uncommitted sha256.aes256
+
+  run bash -c "cd '${TEST_BASE}' && echo '${TEST_PASSPHRASE}' | '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --dir secrets"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not accounted for in git"* ]]
+  [[ "$output" == *"Untracked:"* ]]
+
+  # Nothing was touched
+  [ "$(count_files "${TEST_DIR}" "*.sha256.aes256")" -eq 3 ]
+  [ "$(count_files "${TEST_DIR}" "*.raw")" -eq 0 ]
+  [ "$(count_files "${TEST_DIR}" "*.txt")" -eq 0 ]
+}
+
+@test "rotate: fails when an encrypted file has uncommitted changes" {
+  encrypt_fixtures sha256.aes256
+  printf 'tampered\n' >> "${TEST_DIR}/secret1.sha256.aes256"
+
+  run bash -c "cd '${TEST_BASE}' && echo '${TEST_PASSPHRASE}' | '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --dir secrets"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not accounted for in git"* ]]
+  [[ "$output" == *"Uncommitted changes:"* ]]
+  [[ "$output" == *"secret1.sha256.aes256"* ]]
+}
+
+@test "rotate: fails when repository has no commits" {
+  local fresh="${TEST_BASE}/fresh"
+  mkdir -p "${fresh}/secrets"
+  cp -r "${FIXTURES_DIR}"/* "${fresh}/secrets"/
+  git -C "${fresh}" init -q
+  echo "${TEST_PASSPHRASE}" | "${SCRIPTS_DIR}/kaptain-encrypt-sha256.aes256" --dir "${fresh}/secrets" > /dev/null
+  find "${fresh}/secrets" -name "*.raw" -delete
+
+  run bash -c "cd '${fresh}' && echo '${TEST_PASSPHRASE}' | '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --dir secrets"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no commits"* ]]
+}
+
+@test "rotate: fails when not inside a git repository" {
+  local nogit
+  nogit=$(mktemp -d)
+  mkdir -p "${nogit}/secrets"
+  cp -r "${FIXTURES_DIR}"/* "${nogit}/secrets"/
+  # --dir rejects absolute paths, so encrypt from inside the temp directory
+  ( cd "${nogit}" && echo "${TEST_PASSPHRASE}" | "${SCRIPTS_ABS}/kaptain-encrypt-sha256.aes256" --dir secrets > /dev/null )
+  find "${nogit}/secrets" -name "*.raw" -delete
+
+  run bash -c "cd '${nogit}' && echo '${TEST_PASSPHRASE}' | '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --dir secrets"
+  rm -rf "${nogit}"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Not inside a git repository"* ]]
+}
+
+# =============================================================================
 # Key rotation — same type with generated key
 # =============================================================================
 
 @test "rotate: same type rotates successfully with generated key" {
   encrypt_fixtures sha256.aes256
-  local key_output="${TEST_BASE}/rotated.key"
 
-  run bash -c "echo '${TEST_PASSPHRASE}' | '${SCRIPTS_DIR}/kaptain-rotate-key-for-secrets' --dir '${TEST_DIR}' --output '${key_output}'"
+  run bash -c "cd '${TEST_BASE}' && echo '${TEST_PASSPHRASE}' | '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --dir secrets --output rotated.key"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"Key rotation complete"* ]]
   [[ "$output" == *"New key written to:"* ]]
 
   # New key file was written
-  [ -f "${key_output}" ]
+  [ -f "${TEST_BASE}/rotated.key" ]
   local new_key
-  new_key=$(<"${key_output}")
+  new_key=$(<"${TEST_BASE}/rotated.key")
   [ -n "${new_key}" ]
 
   # Encrypted files still exist (re-encrypted)
@@ -194,14 +276,35 @@ encrypt_fixtures() {
 
 @test "rotate: old key no longer decrypts after rotation" {
   encrypt_fixtures sha256.aes256
-  local key_output="${TEST_BASE}/rotated.key"
 
-  echo "${TEST_PASSPHRASE}" | "${SCRIPTS_DIR}/kaptain-rotate-key-for-secrets" --dir "${TEST_DIR}" --output "${key_output}"
+  ( cd "${TEST_BASE}" && echo "${TEST_PASSPHRASE}" | "${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets" --dir secrets --output rotated.key )
 
   # Old key should fail
   run bash -c "echo '${TEST_PASSPHRASE}' | '${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256' --dir '${TEST_DIR}'"
   [ "$status" -eq 1 ]
   [[ "$output" == *"FAILED"* ]]
+}
+
+@test "rotate: displays new key and writes no file when --output omitted" {
+  encrypt_fixtures sha256.aes256
+
+  run bash -c "cd '${TEST_BASE}' && echo '${TEST_PASSPHRASE}' | '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --dir secrets"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Key rotation complete"* ]]
+  [[ "$output" == *"New key:"* ]]
+  [[ "$output" != *"New key written to:"* ]]
+
+  # No key file anywhere, including the path this used to default to
+  [ ! -e "${TEST_BASE}/target" ]
+  [ ! -e "target/keygen/new.key" ]
+
+  # The displayed key is the real one and decrypts the rotated secrets
+  local new_key
+  new_key=$(printf '%s\n' "$output" | awk '/^New key:$/{getline; print; exit}')
+  [ -n "${new_key}" ]
+  echo "${new_key}" | "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256" --dir "${TEST_DIR}"
+  grep -q "test-secret-value-one" "${TEST_DIR}/secret1.txt"
 }
 
 # =============================================================================
@@ -212,13 +315,14 @@ encrypt_fixtures() {
   encrypt_fixtures sha256.aes256
 
   # Provide old key + new key + new key confirmation
-  run bash -c "printf '%s\n' '${TEST_PASSPHRASE}' '${NEW_PASSPHRASE}' '${NEW_PASSPHRASE}' | '${SCRIPTS_DIR}/kaptain-rotate-key-for-secrets' --dir '${TEST_DIR}' --ask-for-key"
+  run bash -c "cd '${TEST_BASE}' && printf '%s\n' '${TEST_PASSPHRASE}' '${NEW_PASSPHRASE}' '${NEW_PASSPHRASE}' | '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --dir secrets --ask-for-key"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"Key rotation complete"* ]]
 
-  # No key file output when --ask-for-key
+  # The user supplied the key, so it is neither written nor echoed back
   [[ "$output" != *"New key written to:"* ]]
+  [[ "$output" != *"New key:"* ]]
 
   # Encrypted files still exist
   [ "$(count_files "${TEST_DIR}" "*.sha256.aes256")" -eq 3 ]
@@ -231,7 +335,7 @@ encrypt_fixtures() {
 @test "rotate: --ask-for-key rejects mismatched keys" {
   encrypt_fixtures sha256.aes256
 
-  run bash -c "printf '%s\n' '${TEST_PASSPHRASE}' 'key-one' 'key-two' | '${SCRIPTS_DIR}/kaptain-rotate-key-for-secrets' --dir '${TEST_DIR}' --ask-for-key"
+  run bash -c "cd '${TEST_BASE}' && printf '%s\n' '${TEST_PASSPHRASE}' 'key-one' 'key-two' | '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --dir secrets --ask-for-key"
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"New keys do not match"* ]]
@@ -246,9 +350,8 @@ encrypt_fixtures() {
 
 @test "rotate: --new-type migrates encryption type" {
   encrypt_fixtures sha256.aes256
-  local key_output="${TEST_BASE}/migrated.key"
 
-  run bash -c "echo '${TEST_PASSPHRASE}' | '${SCRIPTS_DIR}/kaptain-rotate-key-for-secrets' --dir '${TEST_DIR}' --new-type sha256.aes256.10k --output '${key_output}'"
+  run bash -c "cd '${TEST_BASE}' && echo '${TEST_PASSPHRASE}' | '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --dir secrets --new-type sha256.aes256.10k --output migrated.key"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"Migrating encryption type"* ]]
@@ -262,7 +365,7 @@ encrypt_fixtures() {
 
   # Decrypt with new key and new type
   local new_key
-  new_key=$(<"${key_output}")
+  new_key=$(<"${TEST_BASE}/migrated.key")
   echo "${new_key}" | "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256.10k" --dir "${TEST_DIR}"
   grep -q "test-secret-value-one" "${TEST_DIR}/secret1.txt"
   grep -q "nested-secret-value" "${TEST_DIR}/nested/deep-secret.txt"
@@ -279,7 +382,7 @@ encrypt_fixtures() {
   local before
   before=$(find "${TEST_DIR}" -name "*.sha256.aes256" -type f -exec md5sum {} + | sort)
 
-  run bash -c "echo 'wrong-key' | '${SCRIPTS_DIR}/kaptain-rotate-key-for-secrets' --dir '${TEST_DIR}'"
+  run bash -c "cd '${TEST_BASE}' && echo 'wrong-key' | '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --dir secrets"
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"Key rotation aborted"* ]]
@@ -300,31 +403,20 @@ encrypt_fixtures() {
 
 @test "rotate: no .raw or .txt files left after successful rotation" {
   encrypt_fixtures sha256.aes256
-  local key_output="${TEST_BASE}/cleanup-test.key"
 
-  echo "${TEST_PASSPHRASE}" | "${SCRIPTS_DIR}/kaptain-rotate-key-for-secrets" --dir "${TEST_DIR}" --output "${key_output}"
+  ( cd "${TEST_BASE}" && echo "${TEST_PASSPHRASE}" | "${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets" --dir secrets --output cleanup-test.key )
 
   [ "$(count_files "${TEST_DIR}" "*.raw")" -eq 0 ]
   [ "$(count_files "${TEST_DIR}" "*.txt")" -eq 0 ]
 }
 
-@test "rotate: default output path creates target/keygen/new.key" {
-  encrypt_fixtures sha256.aes256
-
-  echo "${TEST_PASSPHRASE}" | "${SCRIPTS_DIR}/kaptain-rotate-key-for-secrets" --dir "${TEST_DIR}"
-
-  [ -f "target/keygen/new.key" ]
-  rm -f "target/keygen/new.key"
-}
-
 @test "rotate: output key file has restricted permissions" {
   encrypt_fixtures sha256.aes256
-  local key_output="${TEST_BASE}/perms.key"
 
-  echo "${TEST_PASSPHRASE}" | "${SCRIPTS_DIR}/kaptain-rotate-key-for-secrets" --dir "${TEST_DIR}" --output "${key_output}"
+  ( cd "${TEST_BASE}" && echo "${TEST_PASSPHRASE}" | "${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets" --dir secrets --output perms.key )
 
   local perms
-  perms=$(stat -c '%a' "${key_output}" 2>/dev/null || stat -f '%Lp' "${key_output}" 2>/dev/null)
+  perms=$(stat -c '%a' "${TEST_BASE}/perms.key" 2>/dev/null || stat -f '%Lp' "${TEST_BASE}/perms.key" 2>/dev/null)
   [ "${perms}" = "600" ]
 }
 
@@ -339,17 +431,16 @@ encrypt_fixtures() {
 
   AGE_KEY=$(age-keygen 2>/dev/null | grep '^AGE-SECRET-KEY-')
   encrypt_fixtures age "${AGE_KEY}"
-  local key_output="${TEST_BASE}/age-rotated.key"
 
-  run bash -c "echo '${AGE_KEY}' | '${SCRIPTS_DIR}/kaptain-rotate-key-for-secrets' --dir '${TEST_DIR}' --output '${key_output}'"
+  run bash -c "cd '${TEST_BASE}' && echo '${AGE_KEY}' | '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --dir secrets --output age-rotated.key"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"Key rotation complete"* ]]
 
   # New key file written
-  [ -f "${key_output}" ]
+  [ -f "${TEST_BASE}/age-rotated.key" ]
   local new_key
-  new_key=$(<"${key_output}")
+  new_key=$(<"${TEST_BASE}/age-rotated.key")
   [[ "${new_key}" == AGE-SECRET-KEY-* ]]
 
   # Encrypted files exist
@@ -367,9 +458,8 @@ encrypt_fixtures() {
 
   AGE_KEY=$(age-keygen 2>/dev/null | grep '^AGE-SECRET-KEY-')
   encrypt_fixtures age "${AGE_KEY}"
-  local key_output="${TEST_BASE}/migrated-from-age.key"
 
-  run bash -c "echo '${AGE_KEY}' | '${SCRIPTS_DIR}/kaptain-rotate-key-for-secrets' --dir '${TEST_DIR}' --new-type sha256.aes256 --output '${key_output}'"
+  run bash -c "cd '${TEST_BASE}' && echo '${AGE_KEY}' | '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --dir secrets --new-type sha256.aes256 --output migrated-from-age.key"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"Migrating encryption type"* ]]
@@ -382,7 +472,7 @@ encrypt_fixtures() {
 
   # Decrypt with new key
   local new_key
-  new_key=$(<"${key_output}")
+  new_key=$(<"${TEST_BASE}/migrated-from-age.key")
   echo "${new_key}" | "${SCRIPTS_DIR}/kaptain-decrypt-sha256.aes256" --dir "${TEST_DIR}"
   grep -q "test-secret-value-one" "${TEST_DIR}/secret1.txt"
 }
@@ -393,9 +483,8 @@ encrypt_fixtures() {
 
 @test "rotate: respects KAPTAIN_USER_SCRIPTS_SECRETS_DIR" {
   encrypt_fixtures sha256.aes256
-  local key_output="${TEST_BASE}/env-test.key"
 
-  run bash -c "echo '${TEST_PASSPHRASE}' | KAPTAIN_USER_SCRIPTS_SECRETS_DIR='${TEST_DIR}' '${SCRIPTS_DIR}/kaptain-rotate-key-for-secrets' --output '${key_output}'"
+  run bash -c "cd '${TEST_BASE}' && echo '${TEST_PASSPHRASE}' | KAPTAIN_USER_SCRIPTS_SECRETS_DIR='secrets' '${SCRIPTS_ABS}/kaptain-rotate-key-for-secrets' --output env-test.key"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"Key rotation complete"* ]]
