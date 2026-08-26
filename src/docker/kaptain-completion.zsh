@@ -56,6 +56,7 @@ _kaptain_flags() {
     kaptain-encryption-check-ignores)   echo "--dir" ;;
     kaptain-encryption-detect-type)     echo "--allow-none --dir --help --list -h" ;;
     kaptain-keygen)                     echo "--help --output --type -h" ;;
+    kaptain-normalise-secrets)          echo "--dir --dry-run --help -h" ;;
     kaptain-rotate-key-for-secrets)     echo "--ask-for-key --dir --help --new-type --output -h" ;;
     kaptain-clean-images)               echo "--all --all-same-reg-ns --dry-run --exclude-prereleases --exclude-releases --extra-prefixes --help --include-prereleases --include-releases --prefix -h" ;;
     kaptain-clean-secrets)              echo "--all --dir --dry-run --help -h" ;;

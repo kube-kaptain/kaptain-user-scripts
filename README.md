@@ -45,7 +45,7 @@ Currently CLI, routing, utility and encryption scripts useful to kaptain users.
 |---------------------|----------------------------------------------------|
 | `kaptain-list`      | Route to list sub-commands (config, secrets, etc.) |
 | `kaptain-clean`     | Route to clean sub-commands (secrets, etc.)        |
-| `kaptain-normalise` | Route to normalise sub-commands (config, etc.)     |
+| `kaptain-normalise` | Route to normalise sub-commands (config, secrets)  |
 | `kaptain-encrypt`   | Auto-detect encryption type and encrypt            |
 | `kaptain-decrypt`   | Auto-detect encryption type and decrypt            |
 | `kaptain-setup`     | Route to setup sub-commands (brew, etc.)           |
@@ -83,6 +83,7 @@ see the [Encryption Walkthrough](EncryptionWalkthrough.md).
 | `kaptain-encrypt-sha256.aes256.600k` | Encrypt secrets using OpenSSL AES-256 (600k iterations)    |
 | `kaptain-encryption-check-ignores`   | Check gitignore covers secret files                        |
 | `kaptain-encryption-detect-type`     | Print supported types, or the type in use in a directory   |
+| `kaptain-normalise-secrets`          | Strip trailing newlines from single-line token values      |
 
 ### Build
 

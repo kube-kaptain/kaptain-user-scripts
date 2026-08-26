@@ -130,6 +130,15 @@ Utility Commands:
     --dry-run       Show what would change without writing
     --all           Normalise all projects in branchout tree
 
+  kaptain normalise secrets [--dir DIR] [--dry-run]
+    Strip the trailing newline from single-line secret token values. Same
+    rule as normalise config, but a decrypt and re-encrypt round trip with
+    the same key, so the encrypted files must be committed first and only
+    the tokens that actually change are re-encrypted. No --all: each
+    project would need its own key entered.
+    --dir           Secrets directory (default: src/secrets)
+    --dry-run       Show what would change without re-encrypting
+
   kaptain clean images [--all|--all-same-reg-ns|--prefix=X]
                        [--extra-prefixes=A,B,...]
                        [--include-releases] [--include-prereleases]
