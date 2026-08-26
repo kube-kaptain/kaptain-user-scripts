@@ -231,8 +231,44 @@ teardown() {
   [[ "$output" == *"must be a relative path, i.e. a sub path of this repo"* ]]
 }
 
-@test "kaptain-encryption-check-ignores: absolute path does not hang" {
-  # This test verifies the fix for infinite loop with absolute paths
+# Run a command under a time limit without depending on coreutils' timeout,
+# which is absent on a stock macOS. Using it there made this test pass whatever
+# happened, because a missing command exits 127 and only 124 was checked for.
+#
+# Sets TIMED_STATUS to the command's exit code, or 124 if it had to be killed,
+# and TIMED_OUTPUT to its combined stdout and stderr.
+run_with_time_limit() {
+  local limit_tenths=$(( $1 * 10 ))
+  shift
+
+  local out_file="${OUTPUT_SUB_PATH}/test/time-limited-output.$$"
+  local pid waited=0 status=0
+
+  "$@" > "${out_file}" 2>&1 &
+  pid=$!
+
+  while kill -0 "${pid}" 2>/dev/null; do
+    if [[ ${waited} -ge ${limit_tenths} ]]; then
+      kill -9 "${pid}" 2>/dev/null || true
+      wait "${pid}" 2>/dev/null || true
+      TIMED_STATUS=124
+      TIMED_OUTPUT=$(cat "${out_file}" 2>/dev/null || true)
+      rm -f "${out_file}"
+      return 0
+    fi
+    sleep 0.1
+    waited=$(( waited + 1 ))
+  done
+
+  wait "${pid}" || status=$?
+  TIMED_STATUS=${status}
+  TIMED_OUTPUT=$(cat "${out_file}" 2>/dev/null || true)
+  rm -f "${out_file}"
+  return 0
+}
+
+@test "kaptain-encryption-check-ignores: absolute path is rejected and does not hang" {
+  # Guards the fix for an infinite loop walking up from an absolute path.
   # Set up fake git repo in TEST_DIR
   mkdir -p "${TEST_DIR}/.git"
   mkdir -p "${TEST_DIR}/secrets"
@@ -243,16 +279,32 @@ teardown() {
 **/*secrets/**/*.txt
 EOF
 
-  # Run from the fake repo root with absolute path - should complete without hanging
-  # Use timeout to catch infinite loop (5 seconds is plenty)
-  local exit_code=0
-  timeout 5 bash -c "cd '${TEST_DIR}' && '${PWD}/${SCRIPTS_DIR}/kaptain-encryption-check-ignores' --dir '${TEST_DIR}/secrets'" || exit_code=$?
+  # Absolute, resolved before the cd. TEST_DIR is relative, so passing it
+  # through unchanged tested a nonexistent directory rather than this.
+  local abs_secrets="${PWD}/${TEST_DIR}/secrets"
 
-  # Timeout exits with 124 - explicitly fail with message if that happens
-  if [ "${exit_code}" -eq 124 ]; then
+  run_with_time_limit 5 bash -c "cd '${TEST_DIR}' && '${PWD}/${SCRIPTS_DIR}/kaptain-encryption-check-ignores' --dir '${abs_secrets}'"
+
+  # 124 means it had to be killed, which is the loop this guards against
+  if [ "${TIMED_STATUS}" -eq 124 ]; then
     echo "FAIL: Script timed out - infinite loop detected with absolute path" >&2
     return 1
   fi
+
+  # It should refuse the absolute path outright rather than walking anywhere
+  [ "${TIMED_STATUS}" -eq 1 ]
+  [[ "${TIMED_OUTPUT}" == *"must be a relative path"* ]]
+}
+
+@test "run_with_time_limit: kills a hanging command and reports 124" {
+  run_with_time_limit 1 sleep 30
+  [ "${TIMED_STATUS}" -eq 124 ]
+}
+
+@test "run_with_time_limit: reports a fast command's real exit status" {
+  run_with_time_limit 5 bash -c 'echo hello; exit 3'
+  [ "${TIMED_STATUS}" -eq 3 ]
+  [[ "${TIMED_OUTPUT}" == *"hello"* ]]
 }
 
 # kaptain-encryption-detect-type tests

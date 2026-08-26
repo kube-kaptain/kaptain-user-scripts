@@ -91,17 +91,10 @@ if [[ "${identity}" != AGE-SECRET-KEY-* ]]; then
   exit 1
 fi
 
-# Set up secure temp directory and write identity file
-KAPTAIN_TMP="${HOME}/.kaptain-tmp"
-# shellcheck disable=SC2174  # -m covers creation, the chmod below covers a pre-existing dir
-mkdir -p -m 700 "${KAPTAIN_TMP}"
-chmod 700 "${KAPTAIN_TMP}"
-identity_file="${KAPTAIN_TMP}/age-identity.$$"
-trap 'rm -f "${identity_file}"; rmdir "${KAPTAIN_TMP}" 2>/dev/null || true' EXIT
-(umask 077; printf '%s\n' "${identity}" > "${identity_file}")
-chmod 600 "${identity_file}"
-
 # Decrypt each file
+# age -i wants a path, so the identity is handed over on a pipe via /dev/fd
+# rather than written to disk. It must be created per invocation: a pipe is
+# drained by the first reader, so one shared fd would only serve one file.
 success_count=0
 fail_count=0
 failed_files=()
@@ -111,7 +104,7 @@ for age_file in "${age_files[@]}"; do
   txt_file="${age_file%.age}.txt"
   dir=$(dirname "${age_file}")
   echo -n "Decrypting ${dir}/{$(basename "${age_file}") => $(basename "${txt_file}")}"
-  if age -d -i "${identity_file}" -o "${txt_file}" "${age_file}" 2>/dev/null; then
+  if age -d -i <(printf '%s\n' "${identity}") -o "${txt_file}" "${age_file}" 2>/dev/null; then
     echo ""
     success_count=$((success_count + 1))
   else
