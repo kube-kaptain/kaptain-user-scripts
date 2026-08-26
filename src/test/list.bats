@@ -916,3 +916,189 @@ create_file_with_time() {
   [[ "$output" == *"1 lines"* ]]
   [[ "$output" == *"Done. Listed 2 project(s)."* ]]
 }
+
+# =============================================================================
+# list secrets --decrypt / decrypt --show
+# =============================================================================
+
+DECRYPT_VIEW_KEY="test-key-for-ci-only"
+
+# Encrypted fixture with one token of each newline category
+setup_decrypt_view() {
+  mkdir -p "${TEST_LIST}/secrets/nested"
+
+  # The full decrypt router runs kaptain-encryption-check-ignores, which needs
+  # these patterns ignored. Only --show skips that check. Without this the
+  # router test passes locally off a personal global gitignore and fails in CI.
+  cat > "${TEST_LIST}/.gitignore" << 'EOF'
+**/*secrets/**/*.raw
+**/*secrets/**/*.txt
+EOF
+
+  printf 'hunter2'                  > "${TEST_LIST}/secrets/db-password.raw"
+  printf 'sk_live_51H8xQ2eZvKYlo2C' > "${TEST_LIST}/secrets/api-stripe-key.raw"
+  printf 'nested-secret-value\n'    > "${TEST_LIST}/secrets/nested/deep-secret.raw"
+  printf -- '-----BEGIN CERT-----\nabc\ndef\n-----END CERT-----\n' > "${TEST_LIST}/secrets/tls-cert.raw"
+
+  printf '%s\n' "${DECRYPT_VIEW_KEY}" \
+    | "${TEST_BIN}/kaptain-encrypt-sha256.aes256" --dir "${TEST_LIST}/secrets" > /dev/null
+  find "${TEST_LIST}/secrets" -name '*.raw' -delete
+}
+
+plaintext_on_disk() {
+  find "${TEST_LIST}/secrets" \( -name '*.txt' -o -name '*.raw' \) | wc -l | tr -d ' '
+}
+
+@test "list secrets --decrypt: groups values like list config" {
+  setup_decrypt_view
+
+  run bash -c "printf '%s\n' '${DECRYPT_VIEW_KEY}' | '${TEST_BIN}/kaptain-list-secrets' --dir '${TEST_LIST}/secrets' --decrypt"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No newline (usually correct):"* ]]
+  [[ "$output" == *"db-password:"* ]]
+  [[ "$output" == *"hunter2"* ]]
+  [[ "$output" == *"One newline (run kaptain normalise secrets to strip):"* ]]
+  [[ "$output" == *"nested/deep-secret:"* ]]
+  [[ "$output" == *"Multiline (kaptain decrypt --show <token-name> to see it):"* ]]
+  [[ "$output" == *"tls-cert:"* ]]
+  [[ "$output" == *"4 lines"* ]]
+
+  # The multi-line value is summarised, not dumped
+  [[ "$output" != *"BEGIN CERT"* ]]
+}
+
+@test "list secrets --decrypt: writes nothing to disk" {
+  setup_decrypt_view
+
+  run bash -c "printf '%s\n' '${DECRYPT_VIEW_KEY}' | '${TEST_BIN}/kaptain-list-secrets' --dir '${TEST_LIST}/secrets' --decrypt"
+
+  [ "$status" -eq 0 ]
+  [ "$(plaintext_on_disk)" -eq 0 ]
+}
+
+@test "list secrets --decrypt: a named token prints whole, no name or padding" {
+  setup_decrypt_view
+
+  run bash -c "printf '%s\n' '${DECRYPT_VIEW_KEY}' | '${TEST_BIN}/kaptain-list-secrets' --dir '${TEST_LIST}/secrets' --decrypt tls-cert"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"BEGIN CERT"* ]]
+  [[ "$output" == *"END CERT"* ]]
+  [[ "$output" != *"tls-cert:"* ]]
+  [ "$(plaintext_on_disk)" -eq 0 ]
+}
+
+@test "list secrets --decrypt: a named nested token works" {
+  setup_decrypt_view
+
+  # stderr carries the passphrase prompt, which run would merge into $output
+  run bash -c "printf '%s\n' '${DECRYPT_VIEW_KEY}' | '${TEST_BIN}/kaptain-list-secrets' --dir '${TEST_LIST}/secrets' --decrypt nested/deep-secret 2>/dev/null"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "nested-secret-value" ]
+}
+
+@test "list secrets --decrypt: piped single token has no trailing newline" {
+  setup_decrypt_view
+
+  local bytes
+  bytes=$(printf '%s\n' "${DECRYPT_VIEW_KEY}" \
+    | "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets" --decrypt db-password 2>/dev/null \
+    | wc -c | tr -d ' ')
+
+  # exactly "hunter2", 7 bytes, nothing appended
+  [ "${bytes}" -eq 7 ]
+}
+
+@test "list secrets --decrypt: unknown token name fails and lists what exists" {
+  setup_decrypt_view
+
+  run bash -c "printf '%s\n' '${DECRYPT_VIEW_KEY}' | '${TEST_BIN}/kaptain-list-secrets' --dir '${TEST_LIST}/secrets' --decrypt nope"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"No such encrypted secret token name: nope"* ]]
+  [[ "$output" == *"Available token names:"* ]]
+  [[ "$output" == *"db-password"* ]]
+  [[ "$output" == *"nested/deep-secret"* ]]
+
+  # Nothing was decrypted just to reject a name
+  [ "$(plaintext_on_disk)" -eq 0 ]
+}
+
+@test "list secrets --decrypt: wrong key fails" {
+  setup_decrypt_view
+
+  run bash -c "printf '%s\n' 'wrong-key' | '${TEST_BIN}/kaptain-list-secrets' --dir '${TEST_LIST}/secrets' --decrypt"
+
+  [ "$status" -eq 1 ]
+  [ "$(plaintext_on_disk)" -eq 0 ]
+}
+
+@test "list secrets --decrypt: rejected with --all" {
+  run "${TEST_BIN}/kaptain-list-secrets" --decrypt --all
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cannot be combined with --all"* ]]
+}
+
+@test "list secrets: a bare token name without --decrypt is rejected" {
+  run "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets" db-password
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"only means something with --decrypt"* ]]
+}
+
+@test "decrypt --show: identical output to list secrets --decrypt" {
+  setup_decrypt_view
+
+  local via_decrypt via_list
+  via_decrypt=$(printf '%s\n' "${DECRYPT_VIEW_KEY}" \
+    | "${TEST_BIN}/kaptain-decrypt" --dir "${TEST_LIST}/secrets" --show 2>/dev/null)
+  via_list=$(printf '%s\n' "${DECRYPT_VIEW_KEY}" \
+    | "${TEST_BIN}/kaptain-list-secrets" --dir "${TEST_LIST}/secrets" --decrypt 2>/dev/null)
+
+  [ "${via_decrypt}" = "${via_list}" ]
+  [ -n "${via_decrypt}" ]
+}
+
+@test "decrypt --show: named token and no disk writes" {
+  setup_decrypt_view
+
+  # stderr carries the passphrase prompt, which run would merge into $output
+  run bash -c "printf '%s\n' '${DECRYPT_VIEW_KEY}' | '${TEST_BIN}/kaptain-decrypt' --dir '${TEST_LIST}/secrets' --show db-password 2>/dev/null"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "hunter2" ]
+  [ "$(plaintext_on_disk)" -eq 0 ]
+}
+
+@test "decrypt --show: --type is rejected" {
+  run "${TEST_BIN}/kaptain-decrypt" --dir "${TEST_LIST}/secrets" --show --type age
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--type cannot be combined with --show"* ]]
+}
+
+@test "decrypt: without --show still writes .txt files" {
+  setup_decrypt_view
+
+  run bash -c "printf '%s\n' '${DECRYPT_VIEW_KEY}' | '${TEST_BIN}/kaptain-decrypt' --dir '${TEST_LIST}/secrets'"
+
+  [ "$status" -eq 0 ]
+  [ "$(find "${TEST_LIST}/secrets" -name '*.txt' | wc -l | tr -d ' ')" -eq 4 ]
+}
+
+@test "decrypt leaf --show: emits NUL delimited pairs and preserves bytes" {
+  mkdir -p "${TEST_LIST}/secrets"
+  printf 'multi\nline\n  spaced  \n' > "${TEST_LIST}/secrets/c.raw"
+  cp "${TEST_LIST}/secrets/c.raw" "${TEST_LIST}/original"
+  printf '%s\n' "${DECRYPT_VIEW_KEY}" \
+    | "${TEST_BIN}/kaptain-encrypt-sha256.aes256" --dir "${TEST_LIST}/secrets" > /dev/null
+  rm -f "${TEST_LIST}/secrets"/*.raw
+
+  printf '%s\n' "${DECRYPT_VIEW_KEY}" \
+    | "${TEST_BIN}/kaptain-decrypt-sha256.aes256" --dir "${TEST_LIST}/secrets" --show --token c 2>/dev/null \
+    | { IFS= read -r -d '' name; IFS= read -r -d '' value; printf '%s' "${value}"; } \
+    > "${TEST_LIST}/roundtripped"
+
+  cmp "${TEST_LIST}/original" "${TEST_LIST}/roundtripped"
+  [ "$(find "${TEST_LIST}/secrets" \( -name '*.txt' -o -name '*.raw' \) | wc -l | tr -d ' ')" -eq 0 ]
+}

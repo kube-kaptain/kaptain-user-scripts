@@ -127,6 +127,13 @@ useful for scripted/automated workflows.
 
 They all encrypt from `.raw` to their respective suffix and decrypt from their suffix to `.txt`.
 
+`kaptain decrypt --show`, and its alias `kaptain list secrets --decrypt`, display token values
+without writing anything to disk. Output is grouped the same way as `kaptain list config`, with
+multi-line values shown as a line count rather than dumped into the column. Name a single token
+to print just its value, whole however many lines it has, with no trailing newline when piped,
+so `kaptain decrypt --show db-password | pbcopy` does the obvious thing. The plaintext moves
+from the decrypting process on a pipe, never through a file, an argument or the environment.
+
 `kaptain rotate-key-for-secrets` deletes the current encrypted files and re-encrypts with a
 new key, so it refuses to start unless every encrypted file is committed and unmodified. That
 guarantees a way back: restore the old encrypted files from git and decrypt them with the old

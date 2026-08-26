@@ -41,12 +41,12 @@ _kaptain_flags() {
     kaptain-list)                       echo "--help -h" ;;
     kaptain-normalise)                  echo "--help -h" ;;
     kaptain-setup)                      echo "--help -h" ;;
-    kaptain-decrypt)                    echo "--dir --help --type -h" ;;
-    kaptain-decrypt-age)                echo "--dir --help --key-file -h" ;;
-    kaptain-decrypt-sha256.aes256)      echo "--dir --help --key-file -h" ;;
-    kaptain-decrypt-sha256.aes256.100k) echo "--dir --help --key-file -h" ;;
-    kaptain-decrypt-sha256.aes256.10k)  echo "--dir --help --key-file -h" ;;
-    kaptain-decrypt-sha256.aes256.600k) echo "--dir --help --key-file -h" ;;
+    kaptain-decrypt)                    echo "--dir --help --show --type -h" ;;
+    kaptain-decrypt-age)                echo "--dir --help --key-file --show --token -h" ;;
+    kaptain-decrypt-sha256.aes256)      echo "--dir --help --key-file --show --token -h" ;;
+    kaptain-decrypt-sha256.aes256.100k) echo "--dir --help --key-file --show --token -h" ;;
+    kaptain-decrypt-sha256.aes256.10k)  echo "--dir --help --key-file --show --token -h" ;;
+    kaptain-decrypt-sha256.aes256.600k) echo "--dir --help --key-file --show --token -h" ;;
     kaptain-encrypt)                    echo "--dir --help --type -h" ;;
     kaptain-encrypt-age)                echo "--dir --help --key-file -h" ;;
     kaptain-encrypt-sha256.aes256)      echo "--dir --help --key-file -h" ;;
@@ -63,7 +63,7 @@ _kaptain_flags() {
     kaptain-list-config)                echo "--all --defaults-dir --dir --help -h" ;;
     kaptain-list-images)                echo "--all --all-same-reg-ns --exclude-prereleases --exclude-releases --extra-prefixes --help --include-prereleases --include-releases --prefix -h" ;;
     kaptain-list-manifests)             echo "--all --dir --help -h" ;;
-    kaptain-list-secrets)               echo "--all --dir --help --verbose -h -v" ;;
+    kaptain-list-secrets)               echo "--all --decrypt --dir --help --verbose -h -v" ;;
     kaptain-normalise-config)           echo "--all --defaults-dir --dir --dry-run --help -h" ;;
     kaptain-setup-brew)                 echo "--apps-in-home --copy-fred --help -h" ;;
   esac
