@@ -52,6 +52,7 @@ usage() {
   echo "disk. The container has no network and a read-only filesystem."
   echo ""
   echo "The output holds assembled Secrets in plain text. Delete it once used."
+  echo "A script beside it, <dir>.bash, applies it as the in-cluster deploys do."
   echo ""
   echo "Options:"
   echo "  --bootstrap   Bootstrap a run-platform from a released image"
@@ -102,7 +103,8 @@ while [[ $# -gt 0 ]]; do
         echo "ERROR: --dir directory does not exist: $2" >&2
         exit 1
       fi
-      BOOTSTRAP_DIR="$2"
+      # Trailing slash dropped: the apply script is named after the directory
+      BOOTSTRAP_DIR="${2%/}"
       shift 2
       ;;
     *)
@@ -272,6 +274,13 @@ if [[ "${BOOTSTRAP}" == "true" ]]; then
     fi
   fi
 
+  # The apply script sits beside the output directory, named after it
+  BOOTSTRAP_SCRIPT="${BOOTSTRAP_DIR}.bash"
+  if [[ -e "${BOOTSTRAP_SCRIPT}" ]]; then
+    echo "ERROR: ${BOOTSTRAP_SCRIPT} already exists - remove it first" >&2
+    exit 1
+  fi
+
   # Step B3: Pull the release image and check it can bootstrap
   # Quiet, and stdout dropped: the engine's own progress lines only repeat
   # this. Its errors still reach stderr.
@@ -429,13 +438,24 @@ if [[ "${BOOTSTRAP}" == "true" ]]; then
 
   # The same namespace and field manager the in-cluster deploys apply with,
   # so those take the bootstrapped resources over rather than conflicting.
+  # The namespace first, so everything namespaced in the full apply has
+  # somewhere to land. A Namespace is cluster scoped, so it takes no -n.
+  APPLY_FLAGS="--server-side --force-conflicts --field-manager=kaptain/meta-env/${IMAGE_ENVIRONMENT}"
+  {
+    echo "#!/usr/bin/env bash"
+    echo "kubectl apply ${APPLY_FLAGS} -f ${BOOTSTRAP_DIR}/namespace.yaml"
+    echo "kubectl apply -n ${IMAGE_ENVIRONMENT} ${APPLY_FLAGS} -R -f ${BOOTSTRAP_DIR}/"
+  } > "${BOOTSTRAP_SCRIPT}"
+  chmod 700 "${BOOTSTRAP_SCRIPT}"
+
   echo "Bootstrap manifests for ${PROJECT_NAME} ${BOOTSTRAP_TAG} are in ${BOOTSTRAP_DIR}/"
   echo ""
   echo "They hold secrets in plain text so delete them as soon as you've applied"
   echo "them or transferred them to the machine with cluster admin permissions."
   echo ""
-  echo "In either case, apply them using exactly this command:"
-  echo "  kubectl apply -n ${IMAGE_ENVIRONMENT} --server-side --field-manager=kaptain/meta-env/${IMAGE_ENVIRONMENT} -R -f ${BOOTSTRAP_DIR}/"
+  echo "Use the following script to apply them, and ensure you copy"
+  echo "it with the manifests if moving them to another machine:"
+  echo "  ./${BOOTSTRAP_SCRIPT}"
   exit 0
 fi
 
