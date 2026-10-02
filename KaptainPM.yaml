@@ -1,11 +1,11 @@
-apiVersion: kaptain.org/1.18
+apiVersion: kaptain.org/1.35
 kind: docker-build-dockerfile
 metadata:
   description: "Kaptain user scripts packaged as OCI image and release zips"
 
 spec:
   layers:
-    - layer-github-flow-strict:[1.3,2.0)
+    - layer-github-flow-strict:[1.4]
   main:
     hooks:
       preTaggingTests: .github/bin/run-tests.bash

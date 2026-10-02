@@ -90,7 +90,7 @@ see the [Encryption Walkthrough](EncryptionWalkthrough.md).
 | Script                    | Description                                                |
 |---------------------------|------------------------------------------------------------|
 | `kaptain-build`           | Build a kaptain project locally (`--run` to run it after)  |
-| `kaptain-run`             | Run the main image from the most recent build              |
+| `kaptain-run`             | Run the latest build's image, or bootstrap a run-platform  |
 | `kaptain-clean-project`   | Clean build output directories                             |
 | `kaptain-update`          | Route to update sub-commands (versions, etc.)              |
 | `kaptain-update-versions` | Update version refs and apiVersion in KaptainPM.yaml files |

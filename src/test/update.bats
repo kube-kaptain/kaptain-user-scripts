@@ -393,6 +393,132 @@ YAML
 }
 
 # =============================================================================
+# INVALID — the file names a version the registry does not have
+#
+# ERROR means we could not get an answer out of the registry and know nothing
+# about the ref. INVALID means we did get an answer and the file is wrong. The
+# two must not collapse into each other: a re-run can clear an ERROR, only a
+# file edit clears an INVALID.
+# =============================================================================
+
+@test "kaptain-update-versions: --update-fixed reports INVALID when exact ref is above highest" {
+  make_fake_build_root
+  local project="${BATS_TEST_TMPDIR}/proj-invalid-fixed"
+  mkdir -p "${project}"
+  cat > "${project}/KaptainPM.yaml" <<'YAML'
+apiVersion: kaptain.org/1.18
+kind: docker-build-dockerfile
+spec:
+  layers:
+    - layer-foo:[1.5]
+YAML
+  fixture "layer-foo:[0,)" "ghcr.io/x/layer-foo:1.3"
+
+  cd "${project}"
+  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
+    run "${TEST_BUILD}/kaptain-update-versions" --update-fixed --no-update-lower-bounds
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"INVALID"*"layer-foo:[1.5]"*"1.3 is the highest available"* ]]
+  [[ "$output" == *"INVALID references present"* ]]
+  [[ "$output" == *"No changes."* ]]
+  # Must not claim the file is already at a version lower than the one in it.
+  ! grep -E 'layer-foo.*already at highest' <<< "$output"
+  run cat "${project}/KaptainPM.yaml"
+  [[ "$output" == *'layer-foo:[1.5]'* ]]
+}
+
+@test "kaptain-update-versions: standard mode reports INVALID when range matches nothing" {
+  make_fake_build_root
+  local project="${BATS_TEST_TMPDIR}/proj-invalid-range"
+  mkdir -p "${project}"
+  cat > "${project}/KaptainPM.yaml" <<'YAML'
+apiVersion: kaptain.org/1.18
+kind: docker-build-dockerfile
+spec:
+  layers:
+    - layer-foo:[1.5,2.0.0)
+YAML
+  # The range itself resolves to nothing, but the artifact is published, so the
+  # fallback [0,) probe succeeds and the row is INVALID rather than ERROR.
+  fixture "layer-foo:[0,)" "ghcr.io/x/layer-foo:1.3"
+
+  cd "${project}"
+  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
+    run "${TEST_BUILD}/kaptain-update-versions"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"INVALID"*"layer-foo:[1.5,2.0.0)"*"no version matches, 1.3 is the highest available"* ]]
+  ! grep -q 'ERROR' <<< "$output"
+}
+
+@test "kaptain-update-versions: unreachable artifact stays ERROR and does not become INVALID" {
+  make_fake_build_root
+  local project="${BATS_TEST_TMPDIR}/proj-invalid-vs-error"
+  mkdir -p "${project}"
+  cat > "${project}/KaptainPM.yaml" <<'YAML'
+apiVersion: kaptain.org/1.18
+kind: docker-build-dockerfile
+spec:
+  layers:
+    - layer-bad:[1.0,2.0.0)
+YAML
+  # No fixtures at all, so the [0,) probe fails too — we learned nothing.
+
+  cd "${project}"
+  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
+    run "${TEST_BUILD}/kaptain-update-versions"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ERROR"*"layer-bad:[1.0,2.0.0)"* ]]
+  [[ "$output" == *"ERRORS present"* ]]
+  ! grep -q 'INVALID' <<< "$output"
+}
+
+# Regression: compute_updated_range treats a highest below the upper bound as
+# "in range" and tightens the lower bound onto it, which silently rewrote
+# [1.5,2.0.0) to [1.3,2.0.0) — a downgrade applied as an ordinary CHANGE.
+@test "kaptain-update-versions: --update-ranges reports INVALID instead of downgrading the lower bound" {
+  make_fake_build_root
+  local project="${BATS_TEST_TMPDIR}/proj-invalid-no-downgrade"
+  mkdir -p "${project}"
+  cat > "${project}/KaptainPM.yaml" <<'YAML'
+apiVersion: kaptain.org/1.18
+kind: docker-build-dockerfile
+spec:
+  layers:
+    - layer-foo:[1.5,2.0.0)
+YAML
+  fixture "layer-foo:[0,)" "ghcr.io/x/layer-foo:1.3"
+
+  cd "${project}"
+  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
+    run "${TEST_BUILD}/kaptain-update-versions" --update-ranges --no-update-lower-bounds
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"INVALID"*"1.3 is the highest available"* ]]
+  [[ "$output" == *"No changes."* ]]
+  run cat "${project}/KaptainPM.yaml"
+  [[ "$output" == *'layer-foo:[1.5,2.0.0)'* ]]
+  ! grep -q '1.3,2.0.0' <<< "$output"
+}
+
+@test "kaptain-update-versions: --api-version reports INVALID when file is above the schema version" {
+  make_fake_build_root
+  local project="${BATS_TEST_TMPDIR}/proj-invalid-api"
+  mkdir -p "${project}"
+  cat > "${project}/KaptainPM.yaml" <<'YAML'
+apiVersion: kaptain.org/1.20
+kind: docker-build-dockerfile
+YAML
+
+  cd "${project}"
+  KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT="${FAKE_BUILD_ROOT}" \
+    run "${TEST_BUILD}/kaptain-update-versions" --api-version --no-update-lower-bounds
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"INVALID"*"kaptain.org/1.20"*"1.19 is the highest schema version"* ]]
+  [[ "$output" == *"No changes."* ]]
+  run cat "${project}/KaptainPM.yaml"
+  [[ "$output" == *'apiVersion: kaptain.org/1.20'* ]]
+}
+
+# =============================================================================
 # --update-ranges — algorithm-bearing cases
 # =============================================================================
 

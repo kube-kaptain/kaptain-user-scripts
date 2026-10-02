@@ -533,7 +533,7 @@ compute_tightened_lower() {
 # Accumulators.
 #   CHANGES drives the apply step. Each entry is "${file}|${location}|${before}|${after}".
 #   ROWS drives output rendering. Each entry is "${status}|${file}|${location}|${ref}|${detail}"
-#   where status is one of: CHANGE / KEEP / SKIP / ERROR.
+#   where status is one of: CHANGE / KEEP / SKIP / ERROR / INVALID.
 CHANGES=()
 ROWS=()
 
@@ -543,10 +543,10 @@ ROWS=()
 # the same column for every file.
 MAX_LOC_WIDTH=0
 
-# Widest status label (CHANGE/KEEP/SKIP/ERROR). All four are at most 6 chars
-# but we treat it as a constant rather than hard-coding the literal so changes
+# Widest status label (CHANGE/KEEP/SKIP/ERROR/INVALID). INVALID is the longest
+# at 7 chars. Kept as a constant rather than hard-coded at the printf so changes
 # to the label set only need to update this one place.
-STATUS_WIDTH=6
+STATUS_WIDTH=7
 
 # Scan every target file and find the widest short-location string we might
 # emit. Section names are static; the only variable is the index width, which
@@ -619,8 +619,36 @@ record_resolve_error() {
   add_row "ERROR" "${file}" "${location}" "${ref}" "${ref}, artifact-resolve failed (${detail_suffix})"
 }
 
+# Push an INVALID row: the registry answered and nothing it has satisfies the
+# ref in the file. Distinct from ERROR, which means we could not get an answer
+# at all. An ERROR may clear on a re-run; an INVALID needs the file edited.
+INVALIDS_PRESENT=false
+record_invalid() {
+  local file="$1" location="$2" ref="$3" detail="$4"
+  INVALIDS_PRESENT=true
+  add_row "INVALID" "${file}" "${location}" "${ref}" "${ref}, ${detail}"
+}
+
+# Classify a failed resolve. Ask for the artifact's absolute highest: if that
+# resolves, the artifact is published and it is the ref that cannot be
+# satisfied (INVALID); if it fails too, we genuinely could not ask (ERROR).
+# resolve_highest overwrites RESOLVE_ERR_FILE, so the original failure's error
+# file is saved and put back for record_resolve_error's --debug block.
+record_resolve_failure() {
+  local file="$1" location="$2" ref="$3" name="$4"
+  local original_err="${RESOLVE_ERR_FILE:-}"
+  if resolve_highest "${name}"; then
+    record_invalid "${file}" "${location}" "${ref}" \
+      "no version matches, ${HIGHEST_VERSION} is the highest available"
+    return 0
+  fi
+  RESOLVE_ERR_FILE="${original_err}"
+  record_resolve_error "${file}" "${location}" "${ref}"
+}
+
 # Process one entry. Decides which axis applies, records a row for every
-# disposition (change / keep / skip / error). Arguments: file, location, full_ref
+# disposition (change / keep / skip / invalid / error).
+# Arguments: file, location, full_ref
 process_entry() {
   local file="$1" location="$2" ref="$3"
   split_ref "${ref}"
@@ -645,6 +673,14 @@ process_entry() {
     fi
     if ! resolve_highest "${name}"; then
       record_resolve_error "${file}" "${location}" "${ref}"
+      return 0
+    fi
+    # The file names a version the registry does not have. version_resolve_range
+    # trusts exact refs without an existence check, so without this the row would
+    # fall through to KEEP and claim "already at highest" against a lower number.
+    if version_gt "${plain}" "${HIGHEST_VERSION}"; then
+      record_invalid "${file}" "${location}" "${ref}" \
+        "${HIGHEST_VERSION} is the highest available"
       return 0
     fi
     if ! version_gt "${HIGHEST_VERSION}" "${plain}"; then
@@ -672,8 +708,19 @@ process_entry() {
 
   # It's a range.
   if [[ "${UPDATE_RANGES}" == "true" ]]; then
+    # resolve_highest is already the widest possible query, so a failure here
+    # cannot be an unsatisfiable ref; it is always a real resolve failure.
     if ! resolve_highest "${name}"; then
       record_resolve_error "${file}" "${location}" "${ref}"
+      return 0
+    fi
+    # Nothing in the registry reaches the lower bound. Checked before
+    # compute_updated_range, which would otherwise tighten the lower bound
+    # downwards onto the highest available and write a silent downgrade.
+    if parse_range "${version}" && [[ -n "${LOWER_VERSION}" ]] &&
+       version_gt "${LOWER_VERSION}" "${HIGHEST_VERSION}"; then
+      record_invalid "${file}" "${location}" "${ref}" \
+        "${HIGHEST_VERSION} is the highest available"
       return 0
     fi
     if compute_updated_range "${version}" "${HIGHEST_VERSION}"; then
@@ -691,8 +738,10 @@ process_entry() {
 
   if [[ "${UPDATE_LOWER_BOUNDS}" == "true" ]]; then
     # Resolve the range to its current highest match; that's our new lower.
+    # A failure here can mean the range matches nothing published rather than a
+    # broken resolve, so let record_resolve_failure tell the two apart.
     if ! resolve_match "${ref}"; then
-      record_resolve_error "${file}" "${location}" "${ref}"
+      record_resolve_failure "${file}" "${location}" "${ref}" "${name}"
       return 0
     fi
     if compute_tightened_lower "${version}" "${MATCH_VERSION}"; then
@@ -773,7 +822,10 @@ process_file() {
     else
       local current_ver="${current#kaptain.org/}"
       local target="kaptain.org/${CURRENT_API_VERSION}"
-      if version_gt "${CURRENT_API_VERSION}" "${current_ver}"; then
+      if version_gt "${current_ver}" "${CURRENT_API_VERSION}"; then
+        record_invalid "${file}" "apiVersion" "${current}" \
+          "${CURRENT_API_VERSION} is the highest schema version"
+      elif version_gt "${CURRENT_API_VERSION}" "${current_ver}"; then
         add_change "${file}" "apiVersion" "${current}" "${target}"
       else
         add_row "KEEP" "${file}" "apiVersion" "${current}" "${current}, already at schema version (${CURRENT_API_VERSION})"
@@ -932,6 +984,12 @@ elif [[ ${CHANGES_COUNT} -gt 0 ]]; then
   echo "${CHANGES_COUNT} change(s) would be applied (dry run)."
 else
   echo "No changes."
+fi
+
+if [[ "${INVALIDS_PRESENT}" == "true" ]]; then
+  echo ""
+  echo "INVALID references present: these name versions that do not exist and were left alone."
+  echo "Re-running will not clear them, edit the file(s) to a version that is available."
 fi
 
 if [[ "${ERRORS_PRESENT}" == "true" && "${DEBUG}" != "true" ]]; then
