@@ -249,6 +249,7 @@ Build Commands:
                   ready-to-apply manifests locally. Asks for approval, then for
                   the decryption key, which goes in on stdin and never to disk.
                   The output holds Secrets in plain text; delete it once used.
+                  Writes <dir>.bash beside it to apply it, namespace first.
     --tag TAG     Release tag to bootstrap from (default: latest annotated
                   numeric tag, after fetching tags)
     --dir DIR     Existing private (mode 700) directory for the output

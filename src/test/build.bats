@@ -822,21 +822,39 @@ file_mode() {
   [[ "$output" == *"Bootstrap manifests for latest 1.10.0 are in bootstrap-latest/"* ]]
 }
 
-@test "kaptain-run: --bootstrap ends with how to apply, matching the in-cluster deploys" {
+@test "kaptain-run: --bootstrap writes an apply script matching the in-cluster deploys, namespace first" {
   make_bootstrap_project apply-steps
   run "${TEST_BUILD}/kaptain-run" --bootstrap < <(printf 'ysecret-key\n')
   [ "$status" -eq 0 ]
   [[ "$output" == *"delete them as soon as you've applied"* ]]
-  [[ "$output" == *"In either case, apply them using exactly this command:"* ]]
-  [[ "$output" == *"kubectl apply -n run-platform-test --server-side --field-manager=kaptain/meta-env/run-platform-test -R -f bootstrap-apply-steps/"* ]]
+  [[ "$output" == *"Use the following script to apply them, and ensure you copy"* ]]
+  [[ "$output" == *"it with the manifests if moving them to another machine:"* ]]
+  [[ "$output" == *"  ./bootstrap-apply-steps.bash"* ]]
+  [ -x bootstrap-apply-steps.bash ]
+  [ "$(file_mode bootstrap-apply-steps.bash)" = "700" ]
+  [ "$(<bootstrap-apply-steps.bash)" = "#!/usr/bin/env bash
+kubectl apply --server-side --force-conflicts --field-manager=kaptain/meta-env/run-platform-test -f bootstrap-apply-steps/namespace.yaml
+kubectl apply -n run-platform-test --server-side --force-conflicts --field-manager=kaptain/meta-env/run-platform-test -R -f bootstrap-apply-steps/" ]
 }
 
-@test "kaptain-run: --bootstrap apply steps name a given --dir" {
+@test "kaptain-run: --bootstrap apply script is named after a given --dir" {
   make_bootstrap_project apply-dir
   mkdir -m 700 out
-  run "${TEST_BUILD}/kaptain-run" --bootstrap --dir out < <(printf 'ysecret-key\n')
+  run "${TEST_BUILD}/kaptain-run" --bootstrap --dir out/ < <(printf 'ysecret-key\n')
   [ "$status" -eq 0 ]
-  [[ "$output" == *"-R -f out/"* ]]
+  [[ "$output" == *"  ./out.bash"* ]]
+  grep -qF -- "-f out/namespace.yaml" out.bash
+  grep -qF -- "-R -f out/" out.bash
+}
+
+@test "kaptain-run: --bootstrap refuses to overwrite an existing apply script, before approval" {
+  make_bootstrap_project script-exists
+  printf 'mine\n' > bootstrap-script-exists.bash
+  run "${TEST_BUILD}/kaptain-run" --bootstrap < <(printf 'ysecret-key\n')
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"bootstrap-script-exists.bash already exists - remove it first"* ]]
+  [[ "$output" != *"Proceed?"* ]]
+  [ "$(<bootstrap-script-exists.bash)" = "mine" ]
 }
 
 @test "kaptain-run: --bootstrap refuses an image without ENVIRONMENT" {
@@ -952,6 +970,7 @@ file_mode() {
   run "${TEST_BUILD}/kaptain-run" --bootstrap < <(printf '\nsecret-key\n')
   [ "$status" -eq 0 ]
   rmdir bootstrap-proceed
+  rm bootstrap-proceed.bash
   run "${TEST_BUILD}/kaptain-run" --bootstrap < <(printf 'Ysecret-key\n')
   [ "$status" -eq 0 ]
 }
@@ -980,6 +999,7 @@ file_mode() {
   [ "$status" -eq 49 ]
   [[ "$output" == *"Bootstrap failed (exit 49)"* ]]
   [ ! -e bootstrap-run-fails ]
+  [ ! -e bootstrap-run-fails.bash ]
 }
 
 @test "kaptain-run: --bootstrap fails when the default dir already exists" {

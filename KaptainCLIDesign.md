@@ -61,6 +61,8 @@ kaptain run        # runs the main image from the most recent build
   - Pulls and checks the image (meta-env, numeric `KAPTAIN_USER_ID`,
     `/kd/bin/bootstrap` present) before asking for approval
   - Asks for the encryption key and securely mounts it in the container
+  - Writes `<dir>.bash` beside the output: two `kubectl apply` lines, the
+    namespace first then the whole directory, as the in-cluster deploys apply
 
 
 ## Script Structure
