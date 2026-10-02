@@ -235,7 +235,7 @@ Build Commands:
     Requires KAPTAIN_USER_SCRIPTS_BUILD_SCRIPTS_REPO_ROOT to be set.
     --run     Run the built image afterwards, as 'kaptain run' does
 
-  kaptain run
+  kaptain run [--bootstrap [--tag TAG] [--dir DIR]]
     Run the main image from the most recent kaptain build.
     Reads the image URI and container command from the build output, then runs
     the image with --rm. Each port the image exposes is published, from 4242
@@ -244,6 +244,15 @@ Build Commands:
     stdin and stdout are both terminals. Prints a link per published TCP port,
     for localhost and for each address this machine can be reached on, so the
     app can be opened from Windows under WSL2 or from another machine.
+    --bootstrap   For run-platform projects: run the bootstrap script in a
+                  released image, offline, writing the run-platform's own
+                  ready-to-apply manifests locally. Asks for approval, then for
+                  the decryption key, which goes in on stdin and never to disk.
+                  The output holds Secrets in plain text; delete it once used.
+    --tag TAG     Release tag to bootstrap from (default: latest annotated
+                  numeric tag, after fetching tags)
+    --dir DIR     Existing private (mode 700) directory for the output
+                  (default: bootstrap-<project>, created after approval)
 
   kaptain clean project [--dir DIR]
     Remove build output directories (kaptain-out/ and kaptainpm/).

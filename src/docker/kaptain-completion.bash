@@ -34,7 +34,7 @@ _kaptain_flags() {
   case "$1" in
     kaptain-build)                      echo "--help --run -h" ;;
     kaptain-clean-project)              echo "--dir --help -h" ;;
-    kaptain-run)                        echo "--help -h" ;;
+    kaptain-run)                        echo "--bootstrap --dir --help --tag -h" ;;
     kaptain-update)                     echo "--help -h" ;;
     kaptain-update-versions)            echo "--all --api-version --debug --dry-run --file --help --no-update-lower-bounds --update-all --update-fixed --update-lower-bounds --update-ranges -h" ;;
     kaptain-clean)                      echo "--help -h" ;;

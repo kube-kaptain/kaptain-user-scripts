@@ -5,9 +5,12 @@
 # Run the main image produced by the most recent kaptain build.
 # Reads the image URI and the container command from the build output
 # files, publishes any exposed ports from 4242 upward, and runs it.
+#
+# With --bootstrap, instead runs the offline bootstrap of a released
+# run-platform image, writing its own ready-to-apply manifests locally.
 # Run from project root.
 #
-# Usage: kaptain-run [-h|--help]
+# Usage: kaptain-run [--bootstrap [--tag TAG] [--dir DIR]] [-h|--help]
 set -euo pipefail
 
 OUTPUT_DIR="${KAPTAIN_USER_SCRIPTS_OUTPUT_SUB_PATH:-kaptain-out}"
@@ -16,8 +19,12 @@ OUTPUT_DIR="${KAPTAIN_USER_SCRIPTS_OUTPUT_SUB_PATH:-kaptain-out}"
 # ranges, so it is unlikely to collide with anything already listening.
 HOST_PORT_BASE=4242
 
+# Release tags are plain numeric versions of one to six parts. Builds also
+# push suffixed tags (-manifests and so on), which are never the image tag.
+RELEASE_TAG_PATTERN='^[0-9]+(\.[0-9]+){0,5}$'
+
 usage() {
-  echo "Usage: kaptain run [-h|--help]"
+  echo "Usage: kaptain run [--bootstrap [--tag TAG] [--dir DIR]] [-h|--help]"
   echo ""
   echo "Run the main image from the most recent kaptain build."
   echo ""
@@ -35,15 +42,68 @@ usage() {
   echo ""
   echo "Run 'kaptain build' first, or 'kaptain build --run' to do both."
   echo ""
+  echo "Bootstrap mode (--bootstrap) is for run-platform projects. It runs the"
+  echo "bootstrap script in a released image of this project, offline, to write"
+  echo "the run-platform's own ready-to-apply manifests into a local directory."
+  echo "The latest release tag is used unless --tag is given. The output goes"
+  echo "into bootstrap-<project>/, created private once you approve, unless --dir"
+  echo "names an existing private directory. You are asked to approve, then for"
+  echo "the decryption key, which goes to the container on stdin and never to"
+  echo "disk. The container has no network and a read-only filesystem."
+  echo ""
+  echo "The output holds assembled Secrets in plain text. Delete it once used."
+  echo ""
   echo "Options:"
+  echo "  --bootstrap   Bootstrap a run-platform from a released image"
+  echo "  --tag TAG     Release tag to bootstrap from (default: latest)"
+  echo "  --dir DIR     Existing private directory for the output"
+  echo "                (default: bootstrap-<project>, created)"
   echo "  -h, --help    Show this help"
 }
+
+BOOTSTRAP=false
+BOOTSTRAP_TAG=""
+BOOTSTRAP_DIR=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
       usage
       exit 0
+      ;;
+    --bootstrap)
+      BOOTSTRAP=true
+      shift
+      ;;
+    --tag)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --tag requires a value" >&2
+        usage >&2
+        exit 1
+      fi
+      if ! [[ "$2" =~ ${RELEASE_TAG_PATTERN} ]]; then
+        echo "ERROR: --tag must be a release version like 1.2.3, got: $2" >&2
+        exit 1
+      fi
+      BOOTSTRAP_TAG="$2"
+      shift 2
+      ;;
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --dir requires a value" >&2
+        usage >&2
+        exit 1
+      fi
+      if [[ "$2" == /* ]]; then
+        echo "ERROR: --dir must be a relative path" >&2
+        exit 1
+      fi
+      if [[ ! -d "$2" ]]; then
+        echo "ERROR: --dir directory does not exist: $2" >&2
+        exit 1
+      fi
+      BOOTSTRAP_DIR="$2"
+      shift 2
       ;;
     *)
       echo "ERROR: Unknown option: $1" >&2
@@ -52,6 +112,17 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "${BOOTSTRAP}" != "true" ]] && [[ -n "${BOOTSTRAP_TAG}" || -n "${BOOTSTRAP_DIR}" ]]; then
+  echo "ERROR: --tag and --dir only apply with --bootstrap" >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ "${BOOTSTRAP}" == "true" && ! -f "KaptainPM.yaml" ]]; then
+  echo "ERROR: Not a kaptain project: no KaptainPM.yaml in ${PWD}" >&2
+  exit 1
+fi
 
 STEP_OUTPUT_DIR="${OUTPUT_DIR}/reference-script-output"
 
@@ -75,6 +146,24 @@ read_output_var() {
 
   line=$(grep "^${name}=" "${file}" | tail -1) || return 0
   printf '%s' "${line#*=}"
+}
+
+# Centred banner, matching the format the reference build scripts print
+# before each step, so a build that runs on into a run reads as one sequence.
+print_banner() {
+  local title="$1"
+  local inner_width=74
+  local text_len=${#title}
+  local pad_left=$(( (inner_width - text_len) / 2 ))
+  local pad_right=$(( inner_width - text_len - pad_left ))
+
+  echo ""
+  echo "################################################################################"
+  printf "###%74s###\n" ""
+  printf "###%*s%s%*s###\n" "${pad_left}" "" "${title}" "${pad_right}" ""
+  printf "###%74s###\n" ""
+  echo "################################################################################"
+  echo ""
 }
 
 # Step 2: Read the container command the build used
@@ -110,6 +199,244 @@ PROJECT_NAME=$(read_output_var "${STEP_OUTPUT_DIR}/versions-and-naming" "PROJECT
 
 if [[ -z "${PROJECT_NAME}" ]]; then
   PROJECT_NAME="$(basename "${PWD}")"
+fi
+
+# Bootstrap mode: run the bootstrap script baked into a released image of
+# this run-platform, offline, writing its own ready-to-apply manifests into a
+# private local directory. The image is the published one for a release tag,
+# not the local build: the local build only names the repository to pull from.
+#
+# Every check that can fail runs before the approval prompt, and the output
+# directory is only created after approval. Nothing secret touches the host
+# disk except the output itself: the key goes in on stdin to a tmpfs, and the
+# decrypted work happens on another tmpfs.
+if [[ "${BOOTSTRAP}" == "true" ]]; then
+  print_banner "Kaptain CLI Run Command"
+
+  # Step B1: Resolve the release tag
+  if [[ -z "${BOOTSTRAP_TAG}" ]]; then
+    # With no remote, git fetch does nothing and still succeeds
+    if [[ -z "$(git remote 2> /dev/null)" ]]; then
+      echo "ERROR: No git remote to fetch tags from. Pass --tag to choose a release." >&2
+      exit 1
+    fi
+
+    echo "Fetching tags to find the latest release..."
+    if ! git fetch --tags --quiet; then
+      echo "ERROR: Could not fetch tags. Pass --tag to choose a release." >&2
+      exit 1
+    fi
+
+    # Annotated only: every release tag is annotated, so a lightweight tag that
+    # happens to look like a version is a local marker, not a release.
+    while read -r TAG_OBJECT_TYPE TAG_REF; do
+      TAG_NAME="${TAG_REF#refs/tags/}"
+      if [[ "${TAG_OBJECT_TYPE}" == "tag" && "${TAG_NAME}" =~ ${RELEASE_TAG_PATTERN} ]]; then
+        BOOTSTRAP_TAG="${TAG_NAME}"
+        break
+      fi
+    done <<< "$(git for-each-ref --sort=-v:refname --format='%(objecttype) %(refname)' refs/tags)"
+
+    if [[ -z "${BOOTSTRAP_TAG}" ]]; then
+      echo "ERROR: No release tag found: none is annotated and numeric like 1.2.3" >&2
+      exit 1
+    fi
+  fi
+
+  # Tag stripped from the last path segment only, so a registry port survives
+  BOOTSTRAP_IMAGE="${IMAGE_URI%:*}:${BOOTSTRAP_TAG}"
+
+  # Step B2: Resolve the output directory
+  # A given directory must already be private: owned by this user, with no
+  # access for anyone else. The default is created that way after approval.
+  CREATE_BOOTSTRAP_DIR=false
+  if [[ -z "${BOOTSTRAP_DIR}" ]]; then
+    BOOTSTRAP_DIR="bootstrap-${PROJECT_NAME}"
+    if [[ -e "${BOOTSTRAP_DIR}" ]]; then
+      echo "ERROR: ${BOOTSTRAP_DIR}/ already exists" >&2
+      echo "Remove it, or pass --dir ${BOOTSTRAP_DIR} to bootstrap into it." >&2
+      exit 1
+    fi
+    CREATE_BOOTSTRAP_DIR=true
+  else
+    if [[ ! -O "${BOOTSTRAP_DIR}" ]]; then
+      echo "ERROR: ${BOOTSTRAP_DIR}/ is not owned by you" >&2
+      exit 1
+    fi
+    # GNU first: BSD stat -f means filesystem there and succeeds wrongly
+    DIR_MODE=$(stat -c '%a' "${BOOTSTRAP_DIR}" 2> /dev/null || stat -f '%Lp' "${BOOTSTRAP_DIR}")
+    if (( 8#${DIR_MODE} & 8#077 )) || (( (8#${DIR_MODE} & 8#700) != 8#700 )); then
+      echo "ERROR: ${BOOTSTRAP_DIR}/ must be private (mode 700), it is ${DIR_MODE}" >&2
+      echo "Run: chmod 700 ${BOOTSTRAP_DIR}" >&2
+      exit 1
+    fi
+  fi
+
+  # Step B3: Pull the release image and check it can bootstrap
+  # Quiet, and stdout dropped: the engine's own progress lines only repeat
+  # this. Its errors still reach stderr.
+  echo "Pulling ${BOOTSTRAP_IMAGE}..."
+  if ! "${IMAGE_COMMAND}" pull --quiet "${BOOTSTRAP_IMAGE}" > /dev/null; then
+    echo "ERROR: Could not pull ${BOOTSTRAP_IMAGE}" >&2
+    exit 1
+  fi
+  echo "Pulled ${BOOTSTRAP_IMAGE}"
+
+  IMAGE_ENV=$("${IMAGE_COMMAND}" image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${BOOTSTRAP_IMAGE}")
+  IMAGE_ENVIRONMENT_TYPE=$(printf '%s\n' "${IMAGE_ENV}" | sed -n 's/^ENVIRONMENT_TYPE=//p' | tail -1)
+  IMAGE_USER_ID=$(printf '%s\n' "${IMAGE_ENV}" | sed -n 's/^KAPTAIN_USER_ID=//p' | tail -1)
+  IMAGE_ENVIRONMENT=$(printf '%s\n' "${IMAGE_ENV}" | sed -n 's/^ENVIRONMENT=//p' | tail -1)
+
+  if [[ "${IMAGE_ENVIRONMENT_TYPE}" != "meta-env" ]]; then
+    echo "ERROR: ${BOOTSTRAP_IMAGE} is not a run-platform image" >&2
+    echo "       (ENVIRONMENT_TYPE is '${IMAGE_ENVIRONMENT_TYPE}', bootstrap needs 'meta-env')" >&2
+    exit 1
+  fi
+
+  # Names the namespace and field manager the apply instructions must match
+  if [[ -z "${IMAGE_ENVIRONMENT}" ]]; then
+    echo "ERROR: ${BOOTSTRAP_IMAGE} has no ENVIRONMENT" >&2
+    exit 1
+  fi
+
+  if ! [[ "${IMAGE_USER_ID}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: ${BOOTSTRAP_IMAGE} has no numeric KAPTAIN_USER_ID" >&2
+    exit 1
+  fi
+
+  if ! "${IMAGE_COMMAND}" run --rm --network none --entrypoint sh "${BOOTSTRAP_IMAGE}" \
+      -c 'test -x /kd/bin/bootstrap'; then
+    echo "ERROR: ${BOOTSTRAP_IMAGE} has no /kd/bin/bootstrap" >&2
+    echo "       It was built with deploy scripts that predate bootstrap." >&2
+    exit 1
+  fi
+
+  # Step B4: Decide how the container user maps to this user
+  # The image runs as KAPTAIN_USER_ID, and the output must land owned by
+  # whoever ran this. macOS engines run in a VM whose file sharing already
+  # writes as the host user. On Linux the mapping is explicit per engine.
+  USER_ARGS=()
+  MOUNT_OPTIONS=""
+  if [[ "$(uname -s)" == "Linux" ]]; then
+    # Relabel for SELinux hosts; ignored where SELinux is not in use
+    MOUNT_OPTIONS=":Z"
+    case "$(basename "${IMAGE_COMMAND}")" in
+      podman)
+        if [[ "$(id -u)" -eq 0 ]]; then
+          USER_ARGS=(--user 0:0)
+        else
+          # keep-id with a target uid needs podman 4.3 or later
+          PODMAN_VERSION=$("${IMAGE_COMMAND}" version --format '{{.Client.Version}}')
+          PODMAN_MAJOR="${PODMAN_VERSION%%.*}"
+          PODMAN_MINOR="${PODMAN_VERSION#*.}"
+          PODMAN_MINOR="${PODMAN_MINOR%%.*}"
+          if (( PODMAN_MAJOR < 4 || (PODMAN_MAJOR == 4 && PODMAN_MINOR < 3) )); then
+            echo "ERROR: Bootstrap needs podman 4.3 or later, found ${PODMAN_VERSION}" >&2
+            exit 1
+          fi
+          USER_ARGS=("--userns=keep-id:uid=${IMAGE_USER_ID},gid=${IMAGE_USER_ID}")
+        fi
+        ;;
+      docker)
+        # Rootless docker maps container root to this user
+        if "${IMAGE_COMMAND}" info --format '{{.SecurityOptions}}' 2> /dev/null | grep -q rootless; then
+          USER_ARGS=(--user 0:0)
+        else
+          USER_ARGS=(--user "$(id -u):$(id -g)")
+        fi
+        ;;
+      *)
+        echo "ERROR: Bootstrap on Linux supports podman and docker, not ${IMAGE_COMMAND}" >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  # Step B5: Approval
+  echo ""
+  echo "Running bootstrap process against ${PROJECT_NAME} ${BOOTSTRAP_TAG} into ${BOOTSTRAP_DIR}/."
+  echo "If you approve you'll be asked for the decryption key. Proceed? [Y/n]"
+  while true; do
+    APPROVAL=""
+    if ! IFS= read -r -s -n 1 APPROVAL; then
+      echo "Bootstrap cancelled."
+      exit 1
+    fi
+    case "${APPROVAL}" in
+      ""|y|Y)
+        break
+        ;;
+      n|N|q|Q|$'\e')
+        echo "Bootstrap cancelled."
+        exit 1
+        ;;
+      *)
+        echo "Press Enter or y to proceed, or n, q or Esc to stop."
+        ;;
+    esac
+  done
+
+  if [[ "${CREATE_BOOTSTRAP_DIR}" == "true" ]]; then
+    mkdir -m 700 "${BOOTSTRAP_DIR}"
+  fi
+
+  # Removes a directory this run created, if the run left nothing in it
+  remove_created_dir_if_empty() {
+    if [[ "${CREATE_BOOTSTRAP_DIR}" == "true" ]]; then
+      rmdir "${BOOTSTRAP_DIR}" 2> /dev/null || true
+    fi
+  }
+
+  # Step B6: Decryption key, held only in this shell
+  PASSPHRASE=""
+  IFS= read -r -s -p "Decryption key: " PASSPHRASE || true
+  echo ""
+  if [[ -z "${PASSPHRASE}" ]]; then
+    remove_created_dir_if_empty
+    echo "ERROR: No decryption key entered" >&2
+    exit 1
+  fi
+
+  # Step B7: Run it
+  # Offline, read-only, no capabilities. The key goes in on stdin and lands
+  # on a tmpfs where the deploy scripts look for it; the decrypted work is on
+  # another tmpfs. Both vanish with the container whatever the exit.
+  BOOTSTRAP_DIR_ABSOLUTE="$(cd "${BOOTSTRAP_DIR}" && pwd)"
+  BOOTSTRAP_ARGS=(--rm --init -i --network none --read-only
+    --cap-drop ALL --security-opt no-new-privileges)
+  if [[ ${#USER_ARGS[@]} -gt 0 ]]; then
+    BOOTSTRAP_ARGS+=("${USER_ARGS[@]}")
+  fi
+  BOOTSTRAP_ARGS+=(--tmpfs "/secret:rw,mode=1777" --tmpfs "/kd/work:rw,mode=1777"
+    -v "${BOOTSTRAP_DIR_ABSOLUTE}:/kd/bootstrap${MOUNT_OPTIONS}"
+    --entrypoint sh "${BOOTSTRAP_IMAGE}"
+    -c 'cat > /secret/environmentPassphrase && exec /kd/bin/bootstrap')
+
+  print_banner "Bootstrap Container Output"
+
+  # printf is a builtin, so the key never appears in a process list
+  BOOTSTRAP_STATUS=0
+  printf '%s\n' "${PASSPHRASE}" | "${IMAGE_COMMAND}" run "${BOOTSTRAP_ARGS[@]}" || BOOTSTRAP_STATUS=$?
+  PASSPHRASE=""
+
+  print_banner "End Of Bootstrap Container Output"
+
+  if [[ ${BOOTSTRAP_STATUS} -ne 0 ]]; then
+    remove_created_dir_if_empty
+    echo "ERROR: Bootstrap failed (exit ${BOOTSTRAP_STATUS})" >&2
+    exit "${BOOTSTRAP_STATUS}"
+  fi
+
+  # The same namespace and field manager the in-cluster deploys apply with,
+  # so those take the bootstrapped resources over rather than conflicting.
+  echo "Bootstrap manifests for ${PROJECT_NAME} ${BOOTSTRAP_TAG} are in ${BOOTSTRAP_DIR}/"
+  echo ""
+  echo "They hold secrets in plain text so delete them as soon as you've applied"
+  echo "them or transferred them to the machine with cluster admin permissions."
+  echo ""
+  echo "In either case, apply them using exactly this command:"
+  echo "  kubectl apply -n ${IMAGE_ENVIRONMENT} --server-side --field-manager=kaptain/meta-env/${IMAGE_ENVIRONMENT} -R -f ${BOOTSTRAP_DIR}/"
+  exit 0
 fi
 
 # Step 5: Resolve the reference to run
@@ -253,24 +580,6 @@ fi
 if [[ ${#PORT_ARGS[@]} -gt 0 ]]; then
   RUN_ARGS+=("${PORT_ARGS[@]}")
 fi
-
-# Centred banner, matching the format the reference build scripts print
-# before each step, so a build that runs on into a run reads as one sequence.
-print_banner() {
-  local title="$1"
-  local inner_width=74
-  local text_len=${#title}
-  local pad_left=$(( (inner_width - text_len) / 2 ))
-  local pad_right=$(( inner_width - text_len - pad_left ))
-
-  echo ""
-  echo "################################################################################"
-  printf "###%74s###\n" ""
-  printf "###%*s%s%*s###\n" "${pad_left}" "" "${title}" "${pad_right}" ""
-  printf "###%74s###\n" ""
-  echo "################################################################################"
-  echo ""
-}
 
 print_banner "Kaptain CLI Run Command"
 

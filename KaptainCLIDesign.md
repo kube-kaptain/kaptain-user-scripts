@@ -53,6 +53,14 @@ kaptain run        # runs the main image from the most recent build
   falls back to the architecture-suffixed tag, which is all docker leaves behind
 - Publishes each exposed port from 4242 upward, preserving the protocol
 - Runs with `--rm`; the image's own `CMD` or `ENTRYPOINT` decides what runs
+- `--bootstrap` runs a released run-platform image's `/kd/bin/bootstrap` instead:
+  - Image repository from the build output
+  - Tag from `--tag` or the latest annotated tag after `git fetch --tags`
+  - Output to `--dir` (must exist, owned by the user, mode 700) or to
+    `bootstrap-<project>`, created mode 700 after approval
+  - Pulls and checks the image (meta-env, numeric `KAPTAIN_USER_ID`,
+    `/kd/bin/bootstrap` present) before asking for approval
+  - Asks for the encryption key and securely mounts it in the container
 
 
 ## Script Structure
