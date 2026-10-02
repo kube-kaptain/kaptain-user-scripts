@@ -730,8 +730,12 @@ make_bootstrap_project() {
 
   BOOTSTRAP_PROJECT="${BATS_TEST_TMPDIR}/${name}"
   git clone --quiet --no-tags "${origin}" "${BOOTSTRAP_PROJECT}"
-  printf 'kind: docker-build-dockerfile\n' > "${BOOTSTRAP_PROJECT}/KaptainPM.yaml"
-  make_build_output "${BOOTSTRAP_PROJECT}" "reg.example/ns/rp:0.0.1-PRERELEASE" "${engine}"
+  # As a run-platform build leaves it: no docker-build-dockerfile output,
+  # the deploy image URI in kubernetes-run-package instead
+  printf 'kind: kubernetes-run-platform-meta-environment\n' > "${BOOTSTRAP_PROJECT}/KaptainPM.yaml"
+  make_build_output "${BOOTSTRAP_PROJECT}" "" "${engine}"
+  echo "RUN_DEPLOY_IMAGE_URI=reg.example/ns/rp:0.0.1-PRERELEASE" \
+    > "${BOOTSTRAP_PROJECT}/kaptain-out/reference-script-output/kubernetes-run-package"
 
   export PATH="${STUB_BIN}:${PATH}"
   export STUB_UNAME_S="Darwin"
@@ -799,12 +803,28 @@ file_mode() {
 
 @test "kaptain-run: --bootstrap needs a build, as run does" {
   mkdir -p "${BATS_TEST_TMPDIR}/unbuilt"
-  printf 'kind: docker-build-dockerfile\n' > "${BATS_TEST_TMPDIR}/unbuilt/KaptainPM.yaml"
+  printf 'kind: kubernetes-run-platform-meta-environment\n' > "${BATS_TEST_TMPDIR}/unbuilt/KaptainPM.yaml"
   cd "${BATS_TEST_TMPDIR}/unbuilt"
   run "${TEST_BUILD}/kaptain-run" --bootstrap
   [ "$status" -eq 1 ]
   [[ "$output" == *"No build output found"* ]]
   [[ "$output" == *"kaptain build"* ]]
+}
+
+@test "kaptain-run: --bootstrap refuses a project that is not a run-platform" {
+  make_bootstrap_project wrong-kind
+  printf 'kind: docker-build-dockerfile\n' > KaptainPM.yaml
+  run "${TEST_BUILD}/kaptain-run" --bootstrap
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--bootstrap needs a kubernetes-run-platform-meta-environment project, this is 'docker-build-dockerfile'"* ]]
+}
+
+@test "kaptain-run: --bootstrap fails when the build wrote no deploy image URI" {
+  make_bootstrap_project no-deploy-uri
+  rm kaptain-out/reference-script-output/kubernetes-run-package
+  run "${TEST_BUILD}/kaptain-run" --bootstrap
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no RUN_DEPLOY_IMAGE_URI in"* ]]
 }
 
 @test "kaptain-run: --bootstrap uses the latest annotated numeric tag into a new private dir" {

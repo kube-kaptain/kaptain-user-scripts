@@ -23,6 +23,9 @@ HOST_PORT_BASE=4242
 # push suffixed tags (-manifests and so on), which are never the image tag.
 RELEASE_TAG_PATTERN='^[0-9]+(\.[0-9]+){0,5}$'
 
+# The only project kind --bootstrap applies to
+RUN_PLATFORM_KIND="kubernetes-run-platform-meta-environment"
+
 usage() {
   echo "Usage: kaptain run [--bootstrap [--tag TAG] [--dir DIR]] [-h|--help]"
   echo ""
@@ -182,7 +185,32 @@ if [[ -z "${IMAGE_COMMAND}" ]]; then
 fi
 
 # Step 3: Read the main image URI
-IMAGE_URI=$(read_output_var "${STEP_OUTPUT_DIR}/docker-build-dockerfile" "DOCKER_TARGET_IMAGE_FULL_URI")
+# Bootstrap takes the kind from the project's own KaptainPM.yaml, then the
+# deploy image URI the run-platform build wrote, since that kind builds no
+# image from a Dockerfile. Only the repository is used: the tag comes later.
+if [[ "${BOOTSTRAP}" == "true" ]]; then
+  if ! command -v yq &> /dev/null; then
+    echo "ERROR: yq is required for --bootstrap but not found on PATH" >&2
+    exit 1
+  fi
+
+  KIND=$(yq -r '.kind // ""' "KaptainPM.yaml")
+  if [[ "${KIND}" != "${RUN_PLATFORM_KIND}" ]]; then
+    echo "ERROR: --bootstrap needs a ${RUN_PLATFORM_KIND} project, this is '${KIND:-unknown}'" >&2
+    exit 1
+  fi
+
+  IMAGE_URI=$(read_output_var "${STEP_OUTPUT_DIR}/kubernetes-run-package" "RUN_DEPLOY_IMAGE_URI")
+  if [[ -z "${IMAGE_URI}" ]]; then
+    echo "ERROR: Build output is incomplete: no RUN_DEPLOY_IMAGE_URI in" >&2
+    echo "       ${STEP_OUTPUT_DIR}/kubernetes-run-package" >&2
+    echo "" >&2
+    echo "Run 'kaptain build' again." >&2
+    exit 1
+  fi
+else
+  IMAGE_URI=$(read_output_var "${STEP_OUTPUT_DIR}/docker-build-dockerfile" "DOCKER_TARGET_IMAGE_FULL_URI")
+fi
 
 if [[ -z "${IMAGE_URI}" ]]; then
   KIND=""
