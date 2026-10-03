@@ -320,23 +320,23 @@ if [[ "${BOOTSTRAP}" == "true" ]]; then
   echo "Pulled ${BOOTSTRAP_IMAGE}"
 
   IMAGE_ENV=$("${IMAGE_COMMAND}" image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${BOOTSTRAP_IMAGE}")
-  IMAGE_ENVIRONMENT_TYPE=$(printf '%s\n' "${IMAGE_ENV}" | sed -n 's/^ENVIRONMENT_TYPE=//p' | tail -1)
-  IMAGE_USER_ID=$(printf '%s\n' "${IMAGE_ENV}" | sed -n 's/^KAPTAIN_USER_ID=//p' | tail -1)
-  IMAGE_ENVIRONMENT=$(printf '%s\n' "${IMAGE_ENV}" | sed -n 's/^ENVIRONMENT=//p' | tail -1)
+  ENVIRONMENT_TYPE=$(printf '%s\n' "${IMAGE_ENV}" | sed -n 's/^ENVIRONMENT_TYPE=//p' | tail -1)
+  KAPTAIN_USER_ID=$(printf '%s\n' "${IMAGE_ENV}" | sed -n 's/^KAPTAIN_USER_ID=//p' | tail -1)
+  ENVIRONMENT=$(printf '%s\n' "${IMAGE_ENV}" | sed -n 's/^ENVIRONMENT=//p' | tail -1)
 
-  if [[ "${IMAGE_ENVIRONMENT_TYPE}" != "meta-env" ]]; then
+  if [[ "${ENVIRONMENT_TYPE}" != "meta-env" ]]; then
     echo "ERROR: ${BOOTSTRAP_IMAGE} is not a run-platform image" >&2
-    echo "       (ENVIRONMENT_TYPE is '${IMAGE_ENVIRONMENT_TYPE}', bootstrap needs 'meta-env')" >&2
+    echo "       (ENVIRONMENT_TYPE is '${ENVIRONMENT_TYPE}', bootstrap needs 'meta-env')" >&2
     exit 1
   fi
 
   # Names the namespace and field manager the apply instructions must match
-  if [[ -z "${IMAGE_ENVIRONMENT}" ]]; then
+  if [[ -z "${ENVIRONMENT}" ]]; then
     echo "ERROR: ${BOOTSTRAP_IMAGE} has no ENVIRONMENT" >&2
     exit 1
   fi
 
-  if ! [[ "${IMAGE_USER_ID}" =~ ^[0-9]+$ ]]; then
+  if ! [[ "${KAPTAIN_USER_ID}" =~ ^[0-9]+$ ]]; then
     echo "ERROR: ${BOOTSTRAP_IMAGE} has no numeric KAPTAIN_USER_ID" >&2
     exit 1
   fi
@@ -371,7 +371,7 @@ if [[ "${BOOTSTRAP}" == "true" ]]; then
             echo "ERROR: Bootstrap needs podman 4.3 or later, found ${PODMAN_VERSION}" >&2
             exit 1
           fi
-          USER_ARGS=("--userns=keep-id:uid=${IMAGE_USER_ID},gid=${IMAGE_USER_ID}")
+          USER_ARGS=("--userns=keep-id:uid=${KAPTAIN_USER_ID},gid=${KAPTAIN_USER_ID}")
         fi
         ;;
       docker)
@@ -473,11 +473,28 @@ if [[ "${BOOTSTRAP}" == "true" ]]; then
   # so those take the bootstrapped resources over rather than conflicting.
   # The namespace first, so everything namespaced in the full apply has
   # somewhere to land. A Namespace is cluster scoped, so it takes no -n.
-  APPLY_FLAGS="--server-side --force-conflicts --field-manager=kaptain/meta-env/${IMAGE_ENVIRONMENT}"
+  APPLY_FLAGS="--server-side --force-conflicts --field-manager=kaptain/meta-env/${ENVIRONMENT}"
+
+  # A run-platform deploying itself from a suspended CronJob has nothing to
+  # start it: keelson, which launches the other deploy jobs, is not deployed
+  # until this one has run. So the apply script runs it once. Any secondary
+  # CronJob is suffixed in both file and resource name, so only cronjob.yaml
+  # named after the environment is the one.
+  RUN_DEPLOY_JOB=false
+  while IFS= read -r CRONJOB_FILE; do
+    [[ -n "${CRONJOB_FILE}" ]] || continue
+    if [[ "$(ENVIRONMENT="${ENVIRONMENT}" yq -r 'select(.kind == "CronJob" and .metadata.name == strenv(ENVIRONMENT) and .spec.suspend == true) | .metadata.name' "${CRONJOB_FILE}")" == "${ENVIRONMENT}" ]]; then
+      RUN_DEPLOY_JOB=true
+    fi
+  done <<< "$(find "${BOOTSTRAP_DIR}" -type f -name cronjob.yaml)"
+
   {
     echo "#!/usr/bin/env bash"
     echo "kubectl apply ${APPLY_FLAGS} -f ${BOOTSTRAP_DIR}/namespace.yaml"
-    echo "kubectl apply -n ${IMAGE_ENVIRONMENT} ${APPLY_FLAGS} -R -f ${BOOTSTRAP_DIR}/"
+    echo "kubectl apply -n ${ENVIRONMENT} ${APPLY_FLAGS} -R -f ${BOOTSTRAP_DIR}/"
+    if [[ "${RUN_DEPLOY_JOB}" == "true" ]]; then
+      echo "kubectl create job -n ${ENVIRONMENT} --field-manager=kaptain/meta-env/${ENVIRONMENT} --from=cronjob/${ENVIRONMENT} ${ENVIRONMENT}-${BOOTSTRAP_TAG}-bootstrap"
+    fi
   } > "${BOOTSTRAP_SCRIPT}"
   chmod 700 "${BOOTSTRAP_SCRIPT}"
 
