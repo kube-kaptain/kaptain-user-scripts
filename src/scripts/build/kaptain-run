@@ -437,7 +437,9 @@ if [[ "${BOOTSTRAP}" == "true" ]]; then
   # Step B7: Run it
   # Offline, read-only, no capabilities. The key goes in on stdin and lands
   # on a tmpfs where the deploy scripts look for it; the decrypted work is on
-  # another tmpfs. Both vanish with the container whatever the exit.
+  # another tmpfs. /tmp is a tmpfs too, since tools like yq -i write a temp
+  # file there and rename it into place. All vanish with the container
+  # whatever the exit.
   BOOTSTRAP_DIR_ABSOLUTE="$(cd "${BOOTSTRAP_DIR}" && pwd)"
   BOOTSTRAP_ARGS=(--rm --init -i --network none --read-only
     --cap-drop ALL --security-opt no-new-privileges)
@@ -445,6 +447,7 @@ if [[ "${BOOTSTRAP}" == "true" ]]; then
     BOOTSTRAP_ARGS+=("${USER_ARGS[@]}")
   fi
   BOOTSTRAP_ARGS+=(--tmpfs "/secret:rw,mode=1777" --tmpfs "/kd/work:rw,mode=1777"
+    --tmpfs "/tmp:rw,mode=1777"
     -v "${BOOTSTRAP_DIR_ABSOLUTE}:/kd/bootstrap${MOUNT_OPTIONS}"
     --entrypoint sh "${BOOTSTRAP_IMAGE}"
     -c 'cat > /secret/environmentPassphrase && exec /kd/bin/bootstrap')
