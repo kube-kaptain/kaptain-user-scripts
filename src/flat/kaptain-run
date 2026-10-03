@@ -474,10 +474,27 @@ if [[ "${BOOTSTRAP}" == "true" ]]; then
   # The namespace first, so everything namespaced in the full apply has
   # somewhere to land. A Namespace is cluster scoped, so it takes no -n.
   APPLY_FLAGS="--server-side --force-conflicts --field-manager=kaptain/meta-env/${ENVIRONMENT}"
+
+  # A run-platform deploying itself from a suspended CronJob has nothing to
+  # start it: keelson, which launches the other deploy jobs, is not deployed
+  # until this one has run. So the apply script runs it once. Any secondary
+  # CronJob is suffixed in both file and resource name, so only cronjob.yaml
+  # named after the environment is the one.
+  RUN_DEPLOY_JOB=false
+  while IFS= read -r CRONJOB_FILE; do
+    [[ -n "${CRONJOB_FILE}" ]] || continue
+    if [[ "$(ENVIRONMENT="${ENVIRONMENT}" yq -r 'select(.kind == "CronJob" and .metadata.name == strenv(ENVIRONMENT) and .spec.suspend == true) | .metadata.name' "${CRONJOB_FILE}")" == "${ENVIRONMENT}" ]]; then
+      RUN_DEPLOY_JOB=true
+    fi
+  done <<< "$(find "${BOOTSTRAP_DIR}" -type f -name cronjob.yaml)"
+
   {
     echo "#!/usr/bin/env bash"
     echo "kubectl apply ${APPLY_FLAGS} -f ${BOOTSTRAP_DIR}/namespace.yaml"
     echo "kubectl apply -n ${ENVIRONMENT} ${APPLY_FLAGS} -R -f ${BOOTSTRAP_DIR}/"
+    if [[ "${RUN_DEPLOY_JOB}" == "true" ]]; then
+      echo "kubectl create job -n ${ENVIRONMENT} --field-manager=kaptain/meta-env/${ENVIRONMENT} --from=cronjob/${ENVIRONMENT} ${ENVIRONMENT}-${BOOTSTRAP_TAG}-bootstrap"
+    fi
   } > "${BOOTSTRAP_SCRIPT}"
   chmod 700 "${BOOTSTRAP_SCRIPT}"
 

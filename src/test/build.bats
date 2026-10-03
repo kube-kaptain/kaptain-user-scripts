@@ -867,6 +867,49 @@ kubectl apply -n run-platform-test --server-side --force-conflicts --field-manag
   grep -qF -- "-R -f out/" out.bash
 }
 
+# A CronJob manifest in a bootstrap output directory
+write_cronjob() {
+  local file="$1"
+  local name="$2"
+  local suspend="$3"
+  mkdir -p "$(dirname "${file}")"
+  printf 'apiVersion: batch/v1\nkind: CronJob\nmetadata:\n  name: %s\nspec:\n  suspend: %s\n' \
+    "${name}" "${suspend}" > "${file}"
+}
+
+CREATE_DEPLOY_JOB="kubectl create job -n run-platform-test --field-manager=kaptain/meta-env/run-platform-test --from=cronjob/run-platform-test run-platform-test-1.10.0-bootstrap"
+
+@test "kaptain-run: --bootstrap apply script runs a suspended deploy CronJob once, after the applies" {
+  make_bootstrap_project cron-suspended
+  mkdir -m 700 out
+  write_cronjob out/run-platform-test/cronjob.yaml run-platform-test true
+  run "${TEST_BUILD}/kaptain-run" --bootstrap --dir out < <(printf 'ysecret-key\n')
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < out.bash | tr -d ' ')" = "4" ]
+  [ "$(sed -n '4p' out.bash)" = "${CREATE_DEPLOY_JOB}" ]
+}
+
+@test "kaptain-run: --bootstrap apply script ignores a suffixed secondary CronJob" {
+  make_bootstrap_project cron-secondary
+  mkdir -m 700 out
+  write_cronjob out/run-platform-test/cronjob.yaml run-platform-test true
+  write_cronjob out/run-platform-test/cronjob-secondary.yaml run-platform-test-secondary true
+  run "${TEST_BUILD}/kaptain-run" --bootstrap --dir out < <(printf 'ysecret-key\n')
+  [ "$status" -eq 0 ]
+  [ "$(grep -c "create job" out.bash)" = "1" ]
+  [ "$(sed -n '4p' out.bash)" = "${CREATE_DEPLOY_JOB}" ]
+}
+
+@test "kaptain-run: --bootstrap apply script does not run an unsuspended CronJob" {
+  make_bootstrap_project cron-unsuspended
+  mkdir -m 700 out
+  write_cronjob out/run-platform-test/cronjob.yaml run-platform-test false
+  run "${TEST_BUILD}/kaptain-run" --bootstrap --dir out < <(printf 'ysecret-key\n')
+  [ "$status" -eq 0 ]
+  run grep -c "create job" out.bash
+  [ "$output" = "0" ]
+}
+
 @test "kaptain-run: --bootstrap refuses to overwrite an existing apply script, before approval" {
   make_bootstrap_project script-exists
   printf 'mine\n' > bootstrap-script-exists.bash
