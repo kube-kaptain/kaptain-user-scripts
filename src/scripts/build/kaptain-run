@@ -452,6 +452,7 @@ if [[ "${BOOTSTRAP}" == "true" ]]; then
     --entrypoint sh "${BOOTSTRAP_IMAGE}"
     -c 'cat > /secret/environmentPassphrase && exec /kd/bin/bootstrap')
 
+  echo ""
   print_banner "Bootstrap Container Output"
 
   # printf is a builtin, so the key never appears in a process list
@@ -460,6 +461,7 @@ if [[ "${BOOTSTRAP}" == "true" ]]; then
   PASSPHRASE=""
 
   print_banner "End Of Bootstrap Container Output"
+  echo ""
 
   if [[ ${BOOTSTRAP_STATUS} -ne 0 ]]; then
     remove_created_dir_if_empty
@@ -486,7 +488,9 @@ if [[ "${BOOTSTRAP}" == "true" ]]; then
   echo ""
   echo "Use the following script to apply them, and ensure you copy"
   echo "it with the manifests if moving them to another machine:"
+  echo ""
   echo "  ./${BOOTSTRAP_SCRIPT}"
+  echo ""
   exit 0
 fi
 
