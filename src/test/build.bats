@@ -892,7 +892,7 @@ kubectl apply -n run-platform-test --server-side --force-conflicts --field-manag
   [ "$status" -eq 0 ]
   local mount_dir
   mount_dir="$(cd bootstrap-hardened && pwd)"
-  [[ "$output" == *"STUB_RUN: --rm --init -i --network none --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /secret:rw,mode=1777 --tmpfs /kd/work:rw,mode=1777 -v ${mount_dir}:/kd/bootstrap --entrypoint sh reg.example/ns/rp:1.10.0 -c cat > /secret/environmentPassphrase && exec /kd/bin/bootstrap"* ]]
+  [[ "$output" == *"STUB_RUN: --rm --init -i --network none --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /secret:rw,mode=1777 --tmpfs /kd/work:rw,mode=1777 --tmpfs /tmp:rw,mode=1777 -v ${mount_dir}:/kd/bootstrap --entrypoint sh reg.example/ns/rp:1.10.0 -c cat > /secret/environmentPassphrase && exec /kd/bin/bootstrap"* ]]
 }
 
 @test "kaptain-run: --bootstrap sends the key on stdin, never as an argument" {
