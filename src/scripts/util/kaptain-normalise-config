@@ -216,8 +216,8 @@ normalise_project() {
     local pad=$((max_len + 1))
     echo ""
     echo "Summary:"
-    printf "  %-${pad}s %d normalised, %d no-newline, %d multi-newline\n" "${config_label}" "${c_norm}" "${c_none}" "${c_skip}"
-    printf "  %-${pad}s %d normalised, %d no-newline, %d multi-newline\n" "${defaults_label}" "${d_norm}" "${d_none}" "${d_skip}"
+    printf "  %s%*s %d normalised, %d no-newline, %d multi-newline\n" "${config_label}" $(( pad - ${#config_label} )) "" "${c_norm}" "${c_none}" "${c_skip}"
+    printf "  %s%*s %d normalised, %d no-newline, %d multi-newline\n" "${defaults_label}" $(( pad - ${#defaults_label} )) "" "${d_norm}" "${d_none}" "${d_skip}"
     printf "  %-${pad}s %d normalised, %d no-newline, %d multi-newline\n" "Total:" "$((c_norm + d_norm))" "$((c_none + d_none))" "$((c_skip + d_skip))"
   fi
 

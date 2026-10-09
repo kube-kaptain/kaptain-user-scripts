@@ -142,7 +142,7 @@ print_categorised() {
     echo ""
     echo "${indent}No newline (usually correct):"
     for i in "${!no_newline_rels[@]}"; do
-      printf "${indent}  %-${pad}s%s\n" "${no_newline_rels[$i]}:" "${no_newline_vals[$i]}"
+      printf "${indent}  %s%*s%s\n" "${no_newline_rels[$i]}:" $(( pad - ${#no_newline_rels[$i]} - 1 )) "" "${no_newline_vals[$i]}"
     done
   fi
 
@@ -150,7 +150,7 @@ print_categorised() {
     echo ""
     echo "${indent}One newline (run kaptain normalise config to strip):"
     for i in "${!one_newline_rels[@]}"; do
-      printf "${indent}  %-${pad}s%s\n" "${one_newline_rels[$i]}:" "${one_newline_vals[$i]}"
+      printf "${indent}  %s%*s%s\n" "${one_newline_rels[$i]}:" $(( pad - ${#one_newline_rels[$i]} - 1 )) "" "${one_newline_vals[$i]}"
     done
   fi
 
@@ -158,7 +158,7 @@ print_categorised() {
     echo ""
     echo "${indent}Multiline (cat <file> to inspect):"
     for i in "${!multiline_rels[@]}"; do
-      printf "${indent}  %-${pad}s%s lines\n" "${multiline_rels[$i]}:" "${multiline_counts[$i]}"
+      printf "${indent}  %s%*s%s lines\n" "${multiline_rels[$i]}:" $(( pad - ${#multiline_rels[$i]} - 1 )) "" "${multiline_counts[$i]}"
     done
   fi
 }
@@ -234,8 +234,8 @@ list_project() {
 
     echo ""
     echo "Summary:"
-    printf "  %-${pad}s %s\n" "${CONFIG_DIR}:" "${config_summary}"
-    printf "  %-${pad}s %s\n" "${DEFAULTS_DIR}:" "${defaults_summary}"
+    printf "  %s%*s %s\n" "${CONFIG_DIR}:" $(( pad - ${#CONFIG_DIR} - 1 )) "" "${config_summary}"
+    printf "  %s%*s %s\n" "${DEFAULTS_DIR}:" $(( pad - ${#DEFAULTS_DIR} - 1 )) "" "${defaults_summary}"
     echo "  Total: $((c_total + d_total)) values"
     return 0
   fi
