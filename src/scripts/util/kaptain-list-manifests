@@ -8,6 +8,17 @@
 # Usage: kaptain-list-manifests [--dir DIR] [--all]
 set -euo pipefail
 
+if [[ -n "${LC_ALL:-}" ]]; then
+  export LANG="${LC_ALL}"
+  unset LC_ALL
+fi
+export LC_COLLATE=C
+export LC_CTYPE=C.UTF-8
+UTF8_PROBE=$'\xc3\xa9'
+if [[ ${#UTF8_PROBE} -ne 1 ]]; then
+  echo "WARNING: C.UTF-8 locale not available, non-ASCII names will misalign" >&2
+fi
+
 MANIFESTS_DIR="${KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR:-src/kubernetes}"
 ALL_PROJECTS=false
 
