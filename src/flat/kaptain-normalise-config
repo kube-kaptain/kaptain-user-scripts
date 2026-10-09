@@ -11,6 +11,17 @@
 # Usage: kaptain normalise config [--dir DIR] [--defaults-dir DIR] [--dry-run] [--all]
 set -euo pipefail
 
+if [[ -n "${LC_ALL:-}" ]]; then
+  export LANG="${LC_ALL}"
+  unset LC_ALL
+fi
+export LC_COLLATE=C
+export LC_CTYPE=C.UTF-8
+UTF8_PROBE=$'\xc3\xa9'
+if [[ ${#UTF8_PROBE} -ne 1 ]]; then
+  echo "WARNING: C.UTF-8 locale not available, non-ASCII names will misalign" >&2
+fi
+
 CONFIG_DIR="${KAPTAIN_USER_SCRIPTS_CONFIG_DIR:-src/config}"
 DEFAULTS_DIR="${KAPTAIN_USER_SCRIPTS_DEFAULTS_DIR:-src/defaults}"
 CONFIG_DIR_EXPLICIT=false
@@ -205,8 +216,8 @@ normalise_project() {
     local pad=$((max_len + 1))
     echo ""
     echo "Summary:"
-    printf "  %-${pad}s %d normalised, %d no-newline, %d multi-newline\n" "${config_label}" "${c_norm}" "${c_none}" "${c_skip}"
-    printf "  %-${pad}s %d normalised, %d no-newline, %d multi-newline\n" "${defaults_label}" "${d_norm}" "${d_none}" "${d_skip}"
+    printf "  %s%*s %d normalised, %d no-newline, %d multi-newline\n" "${config_label}" $(( pad - ${#config_label} )) "" "${c_norm}" "${c_none}" "${c_skip}"
+    printf "  %s%*s %d normalised, %d no-newline, %d multi-newline\n" "${defaults_label}" $(( pad - ${#defaults_label} )) "" "${d_norm}" "${d_none}" "${d_skip}"
     printf "  %-${pad}s %d normalised, %d no-newline, %d multi-newline\n" "Total:" "$((c_norm + d_norm))" "$((c_none + d_none))" "$((c_skip + d_skip))"
   fi
 

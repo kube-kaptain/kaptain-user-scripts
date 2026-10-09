@@ -10,6 +10,12 @@
 # Usage: decrypt-secrets-sha256.aes256
 set -euo pipefail
 
+if [[ -n "${LC_ALL:-}" ]]; then
+  export LANG="${LC_ALL}"
+  unset LC_ALL
+fi
+export LC_COLLATE=C
+
 SUFFIX="sha256.aes256"
 
 # Handle arguments
@@ -92,7 +98,7 @@ fi
 enc_files=()
 while IFS= read -r -d '' file; do
   enc_files+=("$file")
-done < <(find "${SECRETS_DIR}" -name "*.${SUFFIX}" -type f -print0)
+done < <(find "${SECRETS_DIR}" -name "*.${SUFFIX}" -type f -print0 | sort -z)
 
 if [[ ${#enc_files[@]} -eq 0 ]]; then
   if [[ "${SHOW}" == "true" ]]; then

@@ -8,6 +8,17 @@
 # Usage: kaptain-list-manifests [--dir DIR] [--all]
 set -euo pipefail
 
+if [[ -n "${LC_ALL:-}" ]]; then
+  export LANG="${LC_ALL}"
+  unset LC_ALL
+fi
+export LC_COLLATE=C
+export LC_CTYPE=C.UTF-8
+UTF8_PROBE=$'\xc3\xa9'
+if [[ ${#UTF8_PROBE} -ne 1 ]]; then
+  echo "WARNING: C.UTF-8 locale not available, non-ASCII names will misalign" >&2
+fi
+
 MANIFESTS_DIR="${KAPTAIN_USER_SCRIPTS_MANIFESTS_DIR:-src/kubernetes}"
 ALL_PROJECTS=false
 
@@ -125,7 +136,7 @@ list_manifests_dir() {
     for i in "${!valid_rels[@]}"; do
       local count
       count=$(wc -l < "${valid_files[$i]}" | tr -d ' ')
-      printf "  %-${pad}s%s lines\n" "${valid_rels[$i]}" "${count}"
+      printf "  %s%*s%s lines\n" "${valid_rels[$i]}" $(( pad - ${#valid_rels[$i]} )) "" "${count}"
     done
   fi
 
@@ -133,7 +144,7 @@ list_manifests_dir() {
     echo ""
     echo "Invalid:"
     for i in "${!invalid_rels[@]}"; do
-      printf "  %-${pad}s%s\n" "${invalid_rels[$i]}" "${invalid_reasons[$i]}"
+      printf "  %s%*s%s\n" "${invalid_rels[$i]}" $(( pad - ${#invalid_rels[$i]} )) "" "${invalid_reasons[$i]}"
     done
   fi
 
